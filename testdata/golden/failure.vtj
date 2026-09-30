@@ -1,0 +1,3 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"h264-parser","version":"0.1.0"},"sources":[{"id":0,"size":5585}]}
+{"type":"unit","pts_ns":0,"duration_ns":41708333,"flags":["random_access"],"payload":[["inline","AAAQ9A=="],["src",0,41,4340]]}
+{"type":"error","code":"TRUNCATED_BITSTREAM","message":"frame 1 cortado en el byte 5585"}

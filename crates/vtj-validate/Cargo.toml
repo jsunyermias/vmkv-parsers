@@ -1,0 +1,8 @@
+[package]
+name = "vtj-validate"
+description = "Structural and codec-aware validator for .vtj v1 files"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vtj = { path = "../vtj" }

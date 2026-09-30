@@ -1,0 +1,8 @@
+[package]
+name = "vtj"
+description = "Types, canonical writer, exact timing and validator for the VMKV parser output format (.vtj) v1"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sha2 = "0.11.0"

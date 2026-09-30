@@ -1,0 +1,5 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"srt-parser","version":"0.1.0"},"sources":[{"id":0,"size":83,"sha256":"4094a2ba8df504a02193a629d295958a6790c321d175d4e93fb3a4bb734b2b0d"}]}
+{"type":"unit","pts_ns":1000000000,"duration_ns":2500000000,"flags":["random_access","duration_required"],"payload":[["src",0,32,5]]}
+{"type":"unit","pts_ns":5000000000,"duration_ns":2250000000,"flags":["random_access","duration_required"],"payload":[["src",0,71,11]]}
+{"type":"track","track_type":"subtitle","codec_id":"S_TEXT/UTF8"}
+{"type":"end","unit_count":2}

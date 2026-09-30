@@ -1,0 +1,5 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"aac-adts-parser","version":"0.1.0"},"sources":[{"id":0,"size":751}]}
+{"type":"unit","pts_ns":0,"duration_ns":23219955,"flags":["random_access"],"payload":[["src",0,7,364]]}
+{"type":"unit","pts_ns":23219955,"duration_ns":23219954,"flags":["random_access"],"payload":[["src",0,378,373]]}
+{"type":"track","track_type":"audio","codec_id":"A_AAC","codec_private":[["inline","EhA="]],"audio":{"sampling_frequency":[44100,1],"channels":2}}
+{"type":"end","unit_count":2}
