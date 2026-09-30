@@ -17,6 +17,6 @@ pub mod validate;
 pub mod writer;
 
 pub use cli::{Context, ParamKind, ParamSpec, ParseError, Parser};
-pub use time::{durations_from_pts, round_ns, ticks_to_ns, TimeError, Timeline};
+pub use time::{durations_from_pts, round_ns, ticks_to_ns, trim_end, TimeError, Timeline};
 pub use types::*;
 pub use writer::{VtjWriter, WriteError};

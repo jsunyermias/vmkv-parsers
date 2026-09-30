@@ -127,6 +127,29 @@ pub fn durations_from_pts(pts_in_decode_order: &[i64], end_ns: Option<i64>) -> R
     Ok(out)
 }
 
+/// Marks the end of `units` (the last units of a track, in presentation
+/// order) as padding from `audible_end_ns` on. Each unit that ends after it
+/// gets `discard_padding_ns = its end − max(audible_end_ns, its pts_ns)`, a
+/// difference of rounded instants like `duration_ns` (rule 3), so a unit that
+/// is padding entirely discards exactly its duration and `pts_ns +
+/// duration_ns − discard_padding_ns` of the last unit is `audible_end_ns`.
+///
+/// Returns `false`, changing nothing, when the padding reaches back before
+/// the first unit given or a unit has an unknown duration.
+pub fn trim_end(units: &mut [crate::types::Unit], audible_end_ns: i64) -> bool {
+    let Some(first) = units.first() else { return false };
+    if audible_end_ns < first.pts_ns || units.iter().any(|u| u.duration_ns < 0) {
+        return false;
+    }
+    for u in units.iter_mut() {
+        let end = u.pts_ns + u.duration_ns;
+        if end > audible_end_ns {
+            u.discard_padding_ns = Some(end - audible_end_ns.max(u.pts_ns));
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +202,31 @@ mod tests {
         let mut o = Timeline::new(Rational::new(48000, 1), -312).unwrap();
         assert_eq!(o.advance(960).unwrap(), (-6_500_000, 20_000_000));
         assert_eq!(o.advance(960).unwrap(), (13_500_000, 20_000_000));
+    }
+
+    #[test]
+    fn end_trimming_across_units() {
+        use crate::types::{Flags, Unit};
+        let rate = Rational::new(44100, 1);
+        let mut tl = Timeline::new(rate, -1105).unwrap();
+        let mut units: Vec<Unit> = (0..4)
+            .map(|_| {
+                let (p, d) = tl.advance(1152).unwrap();
+                Unit::new(p, d, Flags::NONE, vec![])
+            })
+            .collect();
+        let end = ticks_to_ns(tl.position() - 1155, rate).unwrap();
+        assert!(trim_end(&mut units[1..], end));
+        assert_eq!(units[0].discard_padding_ns, None);
+        assert_eq!(units[1].discard_padding_ns, None);
+        assert_eq!(units[3].discard_padding_ns, Some(units[3].duration_ns), "the whole last frame is padding");
+        let p = &units[2];
+        assert_eq!(p.pts_ns + p.duration_ns - p.discard_padding_ns.unwrap(), end);
+        assert_eq!(p.discard_padding_ns, Some(ticks_to_ns(tl.position() - 1152, rate).unwrap() - end));
+        let mut short = units[3..].to_vec();
+        short[0].discard_padding_ns = None;
+        assert!(!trim_end(&mut short, end), "padding longer than the units given");
+        assert_eq!(short[0].discard_padding_ns, None);
     }
 
     #[test]

@@ -105,7 +105,7 @@ Cada línea `unit` es un frame tal como lo guardará Matroska.
 | `flags` | sí | Lista de marcas (tabla siguiente); puede estar vacía |
 | `payload` | sí | Cadena de datos con los bytes del frame; puede estar vacía |
 | `codec_state` | no | Cadena de datos con estado nuevo del decodificador, si el códec lo usa |
-| `discard_padding_ns` | no | Silencio a descartar en ns: positivo al final, negativo al principio |
+| `discard_padding_ns` | no | Silencio a descartar en ns: positivo al final, negativo al principio. Se calcula como diferencia de instantes redondeados, igual que `duration_ns` (regla 3). Un relleno final más largo que un frame se reparte hacia atrás entre los últimos frames: los que son relleno entero descartan exactamente su `duration_ns` |
 | `block_additions` | no | Lista de `{"id": n, "data": cadena}` con datos auxiliares; `id` ≥ 1 y único en el frame |
 
 ### Marcas
@@ -253,7 +253,7 @@ Los tiempos y los base64 de estos ejemplos están calculados. Los offsets y tama
 
 ### MP3 (el caso más simple)
 
-Cada frame MP3 se copia tal cual. El archivo empieza con una etiqueta ID3 de 2048 bytes, que el parser salta. Una trama Xing/Info tampoco es audio y también se salta. Si lleva etiqueta LAME, su retardo del encoder más el del decoder (529 muestras) va en `codec_delay_ns` y adelanta los `pts_ns` como en Opus, y su relleno final va en `discard_padding_ns` del último frame. Sin etiqueta LAME no se inventa ningún retardo. 1152 muestras a 44,1 kHz son 26 122 448,98 ns por frame.
+Cada frame MP3 se copia tal cual. El archivo empieza con una etiqueta ID3 de 2048 bytes, que el parser salta. Una trama Xing/Info tampoco es audio y también se salta. Si lleva etiqueta LAME, su retardo del encoder más el del decoder (529 muestras) va en `codec_delay_ns` y adelanta los `pts_ns` como en Opus, y su relleno final menos esas 529 muestras va en `discard_padding_ns` de los últimos frames (a menudo supera un frame). Sin etiqueta LAME no se inventa ningún retardo. 1152 muestras a 44,1 kHz son 26 122 448,98 ns por frame.
 
 ```json
 {"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"mp3-parser","version":"0.1.0"},"sources":[{"id":0,"size":5234123,"sha256":"9f86d0…"}]}
@@ -298,7 +298,7 @@ Esta es la regla 4 en acción. El pre-skip de 312 muestras a 48 kHz va en `codec
 {"type":"track","track_type":"audio","codec_id":"A_OPUS","codec_private":[["src",0,28,19]],"codec_delay_ns":6500000,"seek_preroll_ns":80000000,"audio":{"sampling_frequency":[48000,1],"channels":2}}
 ```
 
-Un paquete Ogg partido entre dos páginas se expresa con dos trozos `src` seguidos. El último paquete PUEDE llevar `discard_padding_ns` si la posición final del stream indica muestras sobrantes.
+Un paquete Ogg partido entre dos páginas se expresa con dos trozos `src` seguidos. Los últimos paquetes de la página final PUEDEN llevar `discard_padding_ns` si su posición granular indica muestras sobrantes.
 
 ### Subtítulos SRT
 

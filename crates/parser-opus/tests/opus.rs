@@ -193,13 +193,20 @@ fn granule_mismatch_and_bad_trimming() {
     assert!(out.contains(r#""code":"INVALID_BITSTREAM","message":"granule position"#), "{out}");
 
     let bytes = remux(&pk, 4000, 0, total - 5000);
-    let (_, out) = run(&temp("trim.opus", &bytes));
-    assert!(
-        out.contains(
-            r#""code":"UNREPRESENTABLE_IN_VMKV","message":"end trimming of 5000 samples exceeds the last packet""#
-        ),
-        "{out}"
-    );
+    let (code, out) = run(&temp("trim.opus", &bytes));
+    assert_eq!(code, 0, "trimming over several packets of the EOS page: {out}");
+    assert_eq!(outcome(&out), Outcome::Success);
+    let t = timing(&out);
+    let trimmed: Vec<_> = t.iter().filter(|u| u.2.is_some()).collect();
+    assert!(trimmed.len() >= 5, "5000 samples span at least 5 packets of 960");
+    assert!(trimmed[1..].iter().all(|u| u.2 == Some(u.1)), "packets after the audible end are discarded whole");
+    let audible_end = trimmed[0].0 + trimmed[0].1 - trimmed[0].2.unwrap();
+    assert_eq!(audible_end, vtj::ticks_to_ns((total - 5000 - 312) as i128, vtj::Rational::new(48000, 1)).unwrap());
+
+    let bytes = remux(&pk, 4000, 0, 100);
+    let (_, out) = run(&temp("trim_all.opus", &bytes));
+    assert!(out.contains(r#""code":"UNREPRESENTABLE_IN_VMKV","message":"end trimming of"#), "{out}");
+    assert!(out.contains("reaches before the last page"), "{out}");
 }
 
 #[test]

@@ -10,7 +10,7 @@
 //!   `seek_preroll_ns` is the 80 ms the Matroska mapping recommends.
 //! - Every page end is checked against the granule position. On the
 //!   end-of-stream page a smaller granule means end trimming, written as
-//!   `discard_padding_ns` of the last unit.
+//!   `discard_padding_ns` of the last units of that page.
 
 pub mod ogg;
 
@@ -129,14 +129,14 @@ impl Parser for Opus {
         }
 
         let pre_skip = head.pre_skip as i128;
+        let flags = Flags::NONE.with(Flag::RandomAccess);
         let mut first_page: Vec<Pending> = Vec::new();
         let mut timeline: Option<Timeline> = None;
         let mut start: i128 = 0;
         let mut total: i128 = 0;
-        let mut last: Option<Unit> = None;
+        let mut held: Vec<Unit> = Vec::new();
         let mut trim: i128 = 0;
-        let mut last_samples: u32 = 0;
-        let flags = Flags::NONE.with(Flag::RandomAccess);
+        let mut any = false;
 
         while let Some(p) = next(ctx, &mut reader)? {
             if p.is_empty() {
@@ -146,76 +146,73 @@ impl Parser for Opus {
                 .map_err(|e| ParseError::invalid(format!("packet {}: {e}", p.index)))?;
             let page_end = p.page_end;
             total += samples as i128;
+            any = true;
 
-            if timeline.is_none() {
-                first_page.push(Pending { packet: p, samples });
-                let Some(end) = page_end else { continue };
-                let granule = end.granule as i128;
-                if granule >= total {
-                    start = granule - total;
-                } else if end.eos {
-                    start = 0;
-                    trim = total - granule;
-                } else {
-                    return Err(ParseError::invalid(format!(
-                        "granule position {granule} of page {} is smaller than the {total} samples it completes",
-                        end.sequence
-                    )));
-                }
-                let mut tl = Timeline::new(RATE, start - pre_skip)?;
-                for q in first_page.drain(..) {
-                    let (pts, dur) = tl.advance(q.samples as i128)?;
-                    if let Some(prev) = last.replace(Unit::new(pts, dur, flags, q.packet.chain(0))) {
-                        ctx.emit(&prev)?;
+            match timeline.as_mut() {
+                None => {
+                    first_page.push(Pending { packet: p, samples });
+                    let Some(end) = page_end else { continue };
+                    let granule = end.granule as i128;
+                    if granule >= total {
+                        start = granule - total;
+                    } else if end.eos {
+                        start = 0;
+                        trim = total - granule;
+                    } else {
+                        return Err(ParseError::invalid(format!(
+                            "granule position {granule} of page {} is smaller than the {total} samples it completes",
+                            end.sequence
+                        )));
                     }
-                    last_samples = q.samples;
+                    let mut tl = Timeline::new(RATE, start - pre_skip)?;
+                    for q in first_page.drain(..) {
+                        let (pts, dur) = tl.advance(q.samples as i128)?;
+                        held.push(Unit::new(pts, dur, flags, q.packet.chain(0)));
+                    }
+                    timeline = Some(tl);
                 }
-                timeline = Some(tl);
-                continue;
-            }
-
-            let tl = timeline.as_mut().expect("checked above");
-            let (pts, dur) = tl.advance(samples as i128)?;
-            if let Some(prev) = last.replace(Unit::new(pts, dur, flags, p.chain(0))) {
-                ctx.emit(&prev)?;
-            }
-            last_samples = samples;
-            if let Some(end) = page_end {
-                let expected = start + total;
-                let granule = end.granule as i128;
-                if granule == expected {
-                    continue;
+                Some(tl) => {
+                    let (pts, dur) = tl.advance(samples as i128)?;
+                    held.push(Unit::new(pts, dur, flags, p.chain(0)));
+                    let Some(end) = page_end else { continue };
+                    let expected = start + total;
+                    let granule = end.granule as i128;
+                    if end.eos && granule < expected {
+                        trim = expected - granule;
+                    } else if granule != expected {
+                        return Err(ParseError::invalid(format!(
+                            "granule position {granule} of page {} does not match the {expected} samples decoded",
+                            end.sequence
+                        )));
+                    }
                 }
-                if end.eos && granule < expected {
-                    trim = expected - granule;
-                } else {
-                    return Err(ParseError::invalid(format!(
-                        "granule position {granule} of page {} does not match the {expected} samples decoded",
-                        end.sequence
-                    )));
+            }
+            if page_end.is_some_and(|e| !e.eos) {
+                for u in held.drain(..) {
+                    ctx.emit(&u)?;
                 }
             }
         }
 
-        if timeline.is_none() {
-            if first_page.is_empty() {
-                return Err(ParseError::invalid("no audio packets"));
-            }
-            return Err(ParseError::truncated("the stream ends before any page with a granule position completes"));
-        }
-        let Some(mut last) = last else {
-            return Err(ParseError::invalid("no audio packets"));
+        let Some(tl) = timeline else {
+            return Err(if any {
+                ParseError::truncated("the stream ends before any page with a granule position completes")
+            } else {
+                ParseError::invalid("no audio packets")
+            });
         };
         if trim > 0 {
-            if trim > last_samples as i128 {
+            let audible_end = ticks_to_ns(tl.position() - trim, RATE)?;
+            if !trim_end(&mut held, audible_end) {
                 return Err(ParseError::new(
                     ErrorCode::UnrepresentableInVmkv,
-                    format!("end trimming of {trim} samples exceeds the last packet"),
+                    format!("end trimming of {trim} samples reaches before the last page"),
                 ));
             }
-            last.discard_padding_ns = Some(ticks_to_ns(trim, RATE)?);
         }
-        ctx.emit(&last)?;
+        for u in &held {
+            ctx.emit(u)?;
+        }
 
         let mut track = Track::new(TrackType::Audio, "A_OPUS");
         track.codec_private = Some(head_packet.chain(0));
