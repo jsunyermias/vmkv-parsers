@@ -1,0 +1,17 @@
+[package]
+name = "vmkv-parser-opus"
+description = "VMKV parser for Opus in Ogg (.opus)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_opus"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-opus"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+vmkv-ogg = { path = "../ogg" }

@@ -17,6 +17,8 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/vmkv-parse` | Lanzador `vmkv-parse <códec>`: ejecuta `vmkv-parser-<códec>` |
 | `crates/parser-mp3` | `vmkv-parser-mp3`: MPEG-1/2/2.5 Layer III, con retardo y relleno de la etiqueta LAME |
 | `crates/parser-aac` | `vmkv-parser-aac`: AAC en ADTS, sin cabecera ADTS en el payload y con AudioSpecificConfig en `codec_private` |
+| `crates/ogg` | `vmkv-ogg`: demuxer Ogg independiente del códec (paquetes como extents, CRC y secuencia verificadas) |
+| `crates/parser-opus` | `vmkv-parser-opus`: Opus en Ogg, con pre-skip, timeline negativo y recorte final |
 
 ## Binarios
 
