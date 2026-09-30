@@ -36,6 +36,10 @@ vmkv-parse --list
 vmkv-parse mp3 cancion.mp3 -o cancion.vtj
 ```
 
+Con `-o`, la salida se escribe en un temporal junto al destino y se renombra al terminar,
+y se rechaza (código 2) un destino que sea una de las entradas, también a través de
+enlaces.
+
 ## Comandos
 
 ```bash

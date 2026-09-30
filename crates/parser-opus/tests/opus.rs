@@ -210,6 +210,29 @@ fn granule_mismatch_and_bad_trimming() {
 }
 
 #[test]
+fn tags_page_must_have_granule_zero() {
+    let pk = packets(&media("opus_stereo.opus"));
+    let total: i64 = pk[2..].iter().map(|p| packet_samples(&p[..2]).unwrap() as i64).sum();
+    let mut b = remux(&pk, 4000, 0, total);
+    let at = 27 + 1 + pk[0].len();
+    assert_eq!(&b[at..at + 4], b"OggS");
+    b[at + 6..at + 14].copy_from_slice(&5i64.to_le_bytes());
+    let nsegs = b[at + 26] as usize;
+    let body: usize = b[at + 27..at + 27 + nsegs].iter().map(|&l| l as usize).sum();
+    let len = 27 + nsegs + body;
+    b[at + 22..at + 26].fill(0);
+    let crc = crc32(&b[at..at + len]);
+    b[at + 22..at + 26].copy_from_slice(&crc.to_le_bytes());
+    let (code, out) = run(&temp("tags_granule.opus", &b));
+    assert_eq!(code, cli::EXIT_PARSE_ERROR);
+    assert_eq!(outcome(&out), Outcome::Failure);
+    assert!(
+        out.contains(r#""message":"the page that ends the OpusTags header has granule position 5 instead of 0""#),
+        "{out}"
+    );
+}
+
+#[test]
 fn damaged_files() {
     let b = std::fs::read(media("opus_stereo.opus")).unwrap();
     let (code, out) = run(&temp("cut.opus", &b[..b.len() - 50]));

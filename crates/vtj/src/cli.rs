@@ -14,11 +14,17 @@
 //!
 //! Exit codes: 0 success; 1 parse failure (an `error` line was written);
 //! 2 usage error (nothing written); 3 the output could not be written.
+//!
+//! With `--output`, the output is written to a temporary file next to the
+//! target and renamed over it at the end, so the target never holds a
+//! partial file; an output that is one of the inputs (same file, also through
+//! links) is refused before anything is opened.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
+use std::path::{Path, PathBuf};
 
 use crate::json::MAX_SAFE_INT;
 use crate::source::SourceFile;
@@ -300,12 +306,26 @@ pub fn run(p: &dyn Parser, args: &[String], stdout: &mut dyn Write, stderr: &mut
         }
     };
 
-    let out: Box<dyn Write + '_> = match inv.output.as_deref() {
-        None | Some("-") => Box::new(BufWriter::new(stdout)),
-        Some(path) => match File::create(path) {
+    let target = inv.output.as_deref().filter(|p| *p != "-").map(PathBuf::from);
+    if let Some(target) = &target {
+        if let Some(input) = inv.inputs.iter().find(|i| same_file(target, Path::new(i))) {
+            let _ = writeln!(
+                stderr,
+                "{}: the output {} is the input {input}; refusing to overwrite it\n\n{}",
+                p.name(),
+                target.display(),
+                usage(p)
+            );
+            return EXIT_USAGE;
+        }
+    }
+    let temp = target.as_deref().map(temp_path);
+    let out: Box<dyn Write + '_> = match &temp {
+        None => Box::new(BufWriter::new(stdout)),
+        Some(tmp) => match File::options().write(true).create_new(true).open(tmp) {
             Ok(f) => Box::new(BufWriter::new(f)),
             Err(e) => {
-                let _ = writeln!(stderr, "{}: cannot create output {path}: {e}", p.name());
+                let _ = writeln!(stderr, "{}: cannot create {}: {e}", p.name(), tmp.display());
                 return EXIT_OUTPUT_ERROR;
             }
         },
@@ -323,10 +343,49 @@ pub fn run(p: &dyn Parser, args: &[String], stdout: &mut dyn Write, stderr: &mut
         }
         Err(None) => EXIT_OUTPUT_ERROR,
     };
+    let mut code = code;
+    let flushed = writer.into_inner().flush();
+    if code != EXIT_OUTPUT_ERROR && flushed.is_err() {
+        code = EXIT_OUTPUT_ERROR;
+    }
+    if let (Some(tmp), Some(target)) = (&temp, &target) {
+        if code == EXIT_OUTPUT_ERROR {
+            let _ = std::fs::remove_file(tmp);
+        } else if let Err(e) = std::fs::rename(tmp, target) {
+            let _ = writeln!(stderr, "{}: cannot rename {} to {}: {e}", p.name(), tmp.display(), target.display());
+            let _ = std::fs::remove_file(tmp);
+            code = EXIT_OUTPUT_ERROR;
+        }
+    }
     if code == EXIT_OUTPUT_ERROR {
         let _ = writeln!(stderr, "{}: the output could not be written and must be discarded", p.name());
     }
     code
+}
+
+/// Whether `a` and `b` name the same existing file (through hard or symbolic
+/// links too).
+fn same_file(a: &Path, b: &Path) -> bool {
+    let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        ma.dev() == mb.dev() && ma.ino() == mb.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (ma, mb);
+        matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+    }
+}
+
+/// Temporary file next to `target`, renamed over it once the output is
+/// complete, so `target` never holds a partial output.
+fn temp_path(target: &Path) -> PathBuf {
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    target.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
 }
 
 /// `Err(None)` means the output itself failed and no error line can be written.

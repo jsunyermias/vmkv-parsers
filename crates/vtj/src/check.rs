@@ -4,7 +4,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::types::{Chunk, Flag, Header, ParamValue, ProjectionType, Rational, Track, TrackType, Unit};
+use crate::json::MAX_SAFE_INT;
+use crate::types::{Chunk, Colour, Flag, Header, ParamValue, ProjectionType, Rational, Track, TrackType, Unit, Video};
 
 /// Source id → size, built from the header.
 pub type SourceSizes = BTreeMap<u64, u64>;
@@ -13,10 +14,28 @@ pub fn source_sizes(h: &Header) -> SourceSizes {
     h.sources.iter().map(|s| (s.id, s.size)).collect()
 }
 
+/// Every integer in the format must lie within ±(2^53 − 1). The decoder
+/// enforces it on JSON it reads; these checks enforce it on records built in
+/// memory, so the writer cannot emit a file the validator would reject.
+fn safe(p: &str, v: impl Into<i128>, out: &mut Vec<String>) {
+    let v = v.into();
+    if v.abs() > MAX_SAFE_INT as i128 {
+        out.push(format!("{p}: {v} is outside ±(2^53−1)"));
+    }
+}
+
+fn safe_opt<T: Into<i128>>(p: &str, v: Option<T>, out: &mut Vec<String>) {
+    if let Some(v) = v {
+        safe(p, v, out);
+    }
+}
+
 fn rational(p: &str, r: Rational, out: &mut Vec<String>) {
     if r.num <= 0 || r.den <= 0 {
         out.push(format!("{p}: rational terms must be > 0, found [{},{}]", r.num, r.den));
     }
+    safe(&format!("{p}[0]"), r.num, out);
+    safe(&format!("{p}[1]"), r.den, out);
 }
 
 fn positive(p: &str, v: Option<u64>, out: &mut Vec<String>) {
@@ -35,6 +54,9 @@ fn non_negative(p: &str, v: Option<i64>, out: &mut Vec<String>) {
 pub fn chain(p: &str, c: &[Chunk], sources: &SourceSizes, out: &mut Vec<String>) {
     for (i, ch) in c.iter().enumerate() {
         if let Chunk::Src { source, offset, length } = *ch {
+            safe(&format!("{p}[{i}][1]"), source, out);
+            safe(&format!("{p}[{i}][2]"), offset, out);
+            safe(&format!("{p}[{i}][3]"), length, out);
             match sources.get(&source) {
                 None => out.push(format!("{p}[{i}]: unknown source id {source}")),
                 Some(&size) => {
@@ -61,6 +83,8 @@ pub fn header(h: &Header) -> Vec<String> {
         out.push("sources: at least one source is required".into());
     }
     for (i, s) in h.sources.iter().enumerate() {
+        safe(&format!("sources[{i}].id"), s.id, &mut out);
+        safe(&format!("sources[{i}].size"), s.size, &mut out);
         if i > 0 && s.id <= h.sources[i - 1].id {
             let what = if s.id == h.sources[i - 1].id { "duplicate id" } else { "ids must be in increasing order" };
             out.push(format!("sources[{i}].id: {what} ({})", s.id));
@@ -75,8 +99,10 @@ pub fn header(h: &Header) -> Vec<String> {
         if k.is_empty() {
             out.push("params: empty parameter name".into());
         }
-        if let ParamValue::Rational(r) = v {
-            rational(&format!("params.{k}"), *r, &mut out);
+        match v {
+            ParamValue::Rational(r) => rational(&format!("params.{k}"), *r, &mut out),
+            ParamValue::Int(n) => safe(&format!("params.{k}"), *n, &mut out),
+            ParamValue::String(_) => {}
         }
     }
     out
@@ -84,6 +110,12 @@ pub fn header(h: &Header) -> Vec<String> {
 
 pub fn unit(u: &Unit, sources: &SourceSizes) -> Vec<String> {
     let mut out = Vec::new();
+    safe("pts_ns", u.pts_ns, &mut out);
+    safe("duration_ns", u.duration_ns, &mut out);
+    safe_opt("discard_padding_ns", u.discard_padding_ns, &mut out);
+    for (i, b) in u.block_additions.iter().enumerate() {
+        safe(&format!("block_additions[{i}].id"), b.id, &mut out);
+    }
     if u.duration_ns < -1 {
         out.push(format!("duration_ns: must be ≥ -1, found {}", u.duration_ns));
     }
@@ -111,6 +143,7 @@ pub fn unit(u: &Unit, sources: &SourceSizes) -> Vec<String> {
 /// each needs a mapping with that `id_value`.
 pub fn track(t: &Track, sources: &SourceSizes, used_addition_ids: &BTreeSet<u64>) -> Vec<String> {
     let mut out = Vec::new();
+    track_ranges(t, &mut out);
     if t.codec_id.is_empty() {
         out.push("codec_id: must not be empty".into());
     }
@@ -199,6 +232,89 @@ pub fn track(t: &Track, sources: &SourceSizes, used_addition_ids: &BTreeSet<u64>
         }
     }
     out
+}
+
+fn track_ranges(t: &Track, out: &mut Vec<String>) {
+    safe_opt("codec_delay_ns", t.codec_delay_ns, out);
+    safe_opt("seek_preroll_ns", t.seek_preroll_ns, out);
+    if let Some(a) = &t.audio {
+        safe("audio.channels", a.channels, out);
+        safe_opt("audio.bit_depth", a.bit_depth, out);
+    }
+    if let Some(v) = &t.video {
+        video_ranges(v, out);
+    }
+    for (i, m) in t.block_addition_mappings.iter().enumerate() {
+        safe_opt(&format!("block_addition_mappings[{i}].id_value"), m.id_value, out);
+        safe(&format!("block_addition_mappings[{i}].type"), m.kind, out);
+    }
+}
+
+fn video_ranges(v: &Video, out: &mut Vec<String>) {
+    safe("video.pixel_width", v.pixel_width, out);
+    safe("video.pixel_height", v.pixel_height, out);
+    for (name, value) in [
+        ("pixel_crop_left", v.pixel_crop_left),
+        ("pixel_crop_top", v.pixel_crop_top),
+        ("pixel_crop_right", v.pixel_crop_right),
+        ("pixel_crop_bottom", v.pixel_crop_bottom),
+        ("display_width", v.display_width),
+        ("display_height", v.display_height),
+        ("field_order", v.field_order),
+        ("stereo_mode", v.stereo_mode),
+        ("alpha_mode", v.alpha_mode),
+    ] {
+        safe_opt(&format!("video.{name}"), value, out);
+    }
+    safe_opt("video.default_decoded_field_duration_ns", v.default_decoded_field_duration_ns, out);
+    if let Some(c) = &v.colour {
+        colour_ranges(c, out);
+    }
+    if let Some(p) = &v.projection {
+        for (name, value) in [("yaw", p.yaw), ("pitch", p.pitch), ("roll", p.roll)] {
+            if value.is_some_and(|x| !x.is_finite()) {
+                out.push(format!("video.projection.{name}: must be a finite number"));
+            }
+        }
+    }
+}
+
+fn colour_ranges(c: &Colour, out: &mut Vec<String>) {
+    for (name, value) in [
+        ("matrix_coefficients", c.matrix_coefficients),
+        ("bits_per_channel", c.bits_per_channel),
+        ("chroma_subsampling_horz", c.chroma_subsampling_horz),
+        ("chroma_subsampling_vert", c.chroma_subsampling_vert),
+        ("cb_subsampling_horz", c.cb_subsampling_horz),
+        ("cb_subsampling_vert", c.cb_subsampling_vert),
+        ("chroma_siting_horz", c.chroma_siting_horz),
+        ("chroma_siting_vert", c.chroma_siting_vert),
+        ("range", c.range),
+        ("transfer_characteristics", c.transfer_characteristics),
+        ("primaries", c.primaries),
+        ("max_cll", c.max_cll),
+        ("max_fall", c.max_fall),
+    ] {
+        safe_opt(&format!("video.colour.{name}"), value, out);
+    }
+    if let Some(m) = &c.mastering {
+        for (name, value) in [
+            ("primary_r_chromaticity_x", m.primary_r_chromaticity_x),
+            ("primary_r_chromaticity_y", m.primary_r_chromaticity_y),
+            ("primary_g_chromaticity_x", m.primary_g_chromaticity_x),
+            ("primary_g_chromaticity_y", m.primary_g_chromaticity_y),
+            ("primary_b_chromaticity_x", m.primary_b_chromaticity_x),
+            ("primary_b_chromaticity_y", m.primary_b_chromaticity_y),
+            ("white_point_chromaticity_x", m.white_point_chromaticity_x),
+            ("white_point_chromaticity_y", m.white_point_chromaticity_y),
+            ("luminance_max", m.luminance_max),
+            ("luminance_min", m.luminance_min),
+        ] {
+            if value.is_some_and(|x| !x.is_finite()) {
+                out.push(format!("video.colour.mastering.{name}: must be a finite number"));
+            }
+        }
+    }
 }
 
 /// What a codec's Matroska mapping requires from the track line.
