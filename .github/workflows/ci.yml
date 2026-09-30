@@ -23,6 +23,7 @@ jobs:
       - run: cargo test --workspace
       - name: Validate golden files with the CLI
         run: |
-          for f in mp3 aac_adts h264_annexb ogg_opus srt; do
-            cargo run -q -p vtj-validate -- --codec-aware testdata/golden/$f.vtj
+          for f in testdata/golden/*.vtj testdata/golden/*/*.vtj; do
+            case "$f" in *failure*) continue ;; esac
+            cargo run -q -p vtj-validate -- --codec-aware "$f"
           done

@@ -24,6 +24,12 @@ normativa. Esta página solo explica el porqué de cada una.
 | 15 | Los parsers de referencia no escriben `sources[].path` | Dependería de cómo se invoque el parser y rompería la regla 8 |
 | 16 | MP3: la trama Xing/Info se salta; con etiqueta LAME, retardo del encoder + 529 en `codec_delay_ns` y relleno final en `discard_padding_ns`; sin etiqueta LAME no se inventa nada | Regla 4 (tiempos reales, como Opus) y regla 7 (no inventar) |
 
+| 17 | Un binario por parser, `vmkv-parser-<códec>`, más el lanzador `vmkv-parse` al estilo de `git` | Aislamiento de fallos entre parsers, parsers en cualquier lenguaje (el contrato es CLI + `.vtj`) y versiones independientes |
+| 18 | CRC de la etiqueta LAME: se acepta tanto la calculada sobre los bytes previos al campo como la de FFmpeg (190 bytes, con el campo a cero y relleno con ceros) | En MPEG-1 estéreo coinciden; en mono o MPEG-2, FFmpeg usa la segunda. Con cualquier otra CRC no se usa la etiqueta (regla 7) |
+| 19 | Si la trama Xing declara un número de frames distinto del real, se ignora el relleno LAME, pero se mantiene el retardo | El archivo fue recortado o concatenado: el relleno ya no describe su final, mientras que el inicio sigue siendo válido |
+| 20 | `vmkv-parser-mp3` solo acepta Layer III; Layer I/II fallan con `UNSUPPORTED_CODEC_VARIANT` | Son otro `codec_id` (`A_MPEG/L1`, `A_MPEG/L2`) |
+| 21 | La trama VBRI se salta sin retardo | Su campo de retardo no es fiable y FFmpeg tampoco lo usa |
+
 ## Convenciones de la implementación (fuera del formato)
 
 - Códigos de salida de un parser: 0 éxito; 1 fallo de parseo (se escribió `error`);

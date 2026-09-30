@@ -1,0 +1,7 @@
+[package]
+name = "vmkv-parse"
+description = "Launcher for VMKV parsers: vmkv-parse <codec> runs vmkv-parser-<codec>"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
