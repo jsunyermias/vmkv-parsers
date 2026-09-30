@@ -260,6 +260,7 @@ string_enum!(
         TimingRequired => "TIMING_REQUIRED",
         MissingInitializationData => "MISSING_INITIALIZATION_DATA",
         InconsistentTrackParameters => "INCONSISTENT_TRACK_PARAMETERS",
+        SourceUnreadable => "SOURCE_UNREADABLE",
         UnrepresentableInVmkv => "UNREPRESENTABLE_IN_VMKV",
     }
 );

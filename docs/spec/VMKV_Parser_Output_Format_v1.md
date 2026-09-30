@@ -37,8 +37,12 @@ Para que la regla 8 (salida determinista) se pueda cumplir, la serialización qu
 - Sin espacios ni saltos fuera de las cadenas. Separadores `,` y `:` a secas.
 - Escapes JSON mínimos: `\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, y `\u00xx` (hexadecimal en minúsculas) para el resto de caracteres de control. No se escapan `/` ni los caracteres no ASCII.
 - Enteros sin signo `+`, sin ceros a la izquierda y sin exponente ni parte decimal.
-- Los campos se escriben en el orden de las tablas de este documento. Las listas conservan su orden semántico: `sources` por `id` creciente y `flags` en el orden de la tabla de marcas.
+- `type` es siempre el primer campo. El resto se escribe en el orden de las tablas de este documento. Las listas conservan su orden semántico: `sources` por `id` estrictamente creciente y `flags` en el orden de la tabla de marcas. Las claves de `params` van en orden ascendente de bytes UTF-8.
+- Los campos opcionales sin información se omiten, igual que los que tendrían su valor por defecto: `requires_lacing` solo se escribe como `true`, y `block_additions`, `block_addition_mappings` y `params` no se escriben vacíos.
+- Base64 canónico: relleno obligatorio y bits sobrantes del último símbolo a cero.
 - Los mensajes de `error` NO DEBEN incluir texto dependiente del entorno (rutas temporales, mensajes del sistema operativo, fechas).
+
+Un campo desconocido, como una marca desconocida, invalida la salida: un error de escritura como `"pts":0` no pasa inadvertido. Las ampliaciones del formato cambian `version`.
 
 ### Tipos comunes
 
@@ -48,6 +52,7 @@ Para que la regla 8 (salida determinista) se pueda cumplir, la serialización qu
 | Tiempo | entero en nanosegundos | `1000000000` = 1 s |
 | Racional | `[numerador, denominador]`, ambos > 0 | `[24000, 1001]` |
 | Bytes | cadena base64 estándar, con relleno `=` | `"EhA="` |
+| Real | número decimal, solo en `mastering` y en los ángulos de `projection`: el decimal más corto que vuelve al mismo `f64`, sin exponente y con `-0` escrito como `0` | `0.708`, `1000`, `0.0001` |
 | Cadena de datos | lista de trozos (ver abajo); puede estar vacía | `[["src",0,0,418]]` |
 
 El límite de 2^53 existe porque muchos lectores JSON pierden precisión por encima. Equivale a 9 PB en offsets y 104 días en tiempos.
@@ -66,7 +71,7 @@ Una forma `["xform", …]` queda reservada para una versión futura. Los parsers
 La primera línea identifica el formato, el parser y los archivos de origen.
 
 ```json
-{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"mp3-parser","version":"0.1.0"},"sources":[{"id":0,"path":"cancion.mp3","size":5234123,"sha256":"9f86d0…"}]}
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"mp3-parser","version":"0.1.0"},"sources":[{"id":0,"size":5234123,"sha256":"9f86d0…","path":"cancion.mp3"}]}
 ```
 
 | Campo | Obligatorio | Significado |
@@ -78,8 +83,8 @@ La primera línea identifica el formato, el parser y los archivos de origen.
 | `sources[].id` | sí | Número que usan los trozos `src`; único en la lista |
 | `sources[].size` | sí | Tamaño exacto en bytes |
 | `sources[].sha256` | recomendado | Hash del contenido, en hexadecimal minúsculas |
-| `sources[].path` | no | Solo informativo; NO identifica el archivo |
-| `params` | no | Objeto con los parámetros externos que recibió el parser y que afectan a la salida (por ejemplo `{"frame_rate":[24000,1001]}`). Los valores usan los tipos comunes. Se omite si no hubo ninguno |
+| `sources[].path` | no | Solo informativo; NO identifica el archivo. Los parsers de referencia no lo escriben, porque dependería de cómo se invoque el parser (regla 8) |
+| `params` | no | Objeto con los parámetros externos que recibió el parser y que afectan a la salida (por ejemplo `{"frame_rate":[24000,1001]}`). Los valores usan los tipos comunes. Valores: entero, racional o cadena. Claves en orden ascendente de bytes. Se omite si no hubo ninguno |
 
 Todo parámetro externo que cambie la salida DEBE aparecer en `params`, para que el `.vtj` diga de dónde salió su línea de tiempo. Cómo se entregan esos parámetros al parser (opciones de línea de comandos, API) no lo define este formato.
 
@@ -132,7 +137,7 @@ La línea `track` describe la pista. Va después del último frame.
 | `seek_preroll_ns` | si el códec lo exige | Datos a decodificar antes de un punto de búsqueda, en ns |
 | `video` | si `track_type` = `video` | Ver tabla de vídeo |
 | `audio` | si `track_type` = `audio` | Ver tabla de audio |
-| `block_addition_mappings` | no | Lista de `{"id_value"?, "name"?, "type", "extra_data"?}`; `id_value` ≥ 2, `type` ≠ 0 |
+| `block_addition_mappings` | no | Lista de `{"id_value"?, "name"?, "type", "extra_data"?}`; `id_value` ≥ 2 y único, `type` ≠ 0, `extra_data` es una cadena de datos |
 | `requires_lacing` | no | `true` solo si la pista es imposible de representar sin lacing; por defecto `false` |
 
 ### Audio
@@ -159,9 +164,16 @@ La línea `track` describe la pista. Va después del último frame.
 | `default_decoded_field_duration_ns` | no | Periodo entre campos, en ns |
 | `uncompressed_fourcc` | con `V_UNCOMPRESSED` | 4 bytes en base64 |
 | `colour` | no | Objeto con los campos de color de Matroska (matriz, rango, transferencia, primarios, MaxCLL, MaxFALL, `mastering`) |
-| `projection` | no | `{"type", "private"?, "yaw"?, "pitch"?, "roll"?}`; `type`: `rectangular`, `equirectangular`, `cubemap` o `mesh` |
+| `projection` | no | `{"type", "private"?, "yaw"?, "pitch"?, "roll"?}`; `type`: `rectangular`, `equirectangular`, `cubemap` o `mesh`; `private` es una cadena de datos; los ángulos son reales en grados |
 
-Los campos de `colour` usan los nombres de Matroska en minúsculas con guiones bajos, por ejemplo `matrix_coefficients` o `max_cll`. `mastering` lleva los valores numéricos reales, no codificados.
+Los campos de `colour` usan los nombres de Matroska en minúsculas con guiones bajos y van en el orden de los elementos de Matroska. Todos son opcionales:
+
+| Campo | Tipo |
+| --- | --- |
+| `matrix_coefficients`, `bits_per_channel`, `chroma_subsampling_horz`, `chroma_subsampling_vert`, `cb_subsampling_horz`, `cb_subsampling_vert`, `chroma_siting_horz`, `chroma_siting_vert`, `range`, `transfer_characteristics`, `primaries`, `max_cll`, `max_fall` | Entero ≥ 0 |
+| `mastering` | Objeto con `primary_r_chromaticity_x`, `primary_r_chromaticity_y`, `primary_g_chromaticity_x`, `primary_g_chromaticity_y`, `primary_b_chromaticity_x`, `primary_b_chromaticity_y`, `white_point_chromaticity_x`, `white_point_chromaticity_y`, `luminance_max`, `luminance_min`, en ese orden; reales con el valor real, no codificado |
+
+`video` solo aparece con `track_type` = `video`, y `audio` solo con `track_type` = `audio`.
 
 En `projection`, `private` NO DEBE aparecer con `rectangular` y DEBE aparecer con los otros tres tipos.
 
@@ -193,6 +205,7 @@ Si el parser falla, NO escribe `end`. En su lugar escribe una línea de error co
 | `TIMING_REQUIRED` | No hay forma de calcular los tiempos sin información externa |
 | `MISSING_INITIALIZATION_DATA` | Falta la inicialización del códec (p. ej. sin SPS en H.264) |
 | `INCONSISTENT_TRACK_PARAMETERS` | Los parámetros cambian a mitad de pista de forma no representable |
+| `SOURCE_UNREADABLE` | Un archivo de origen no se puede abrir o leer (error de E/S, no de contenido). El detalle del sistema va a stderr, no al mensaje |
 | `UNREPRESENTABLE_IN_VMKV` | Cualquier otra cosa que este formato no puede expresar |
 
 `message` es libre y PUEDE incluir detalles del códec, pero debe ser determinista (ver Serialización canónica).
@@ -240,7 +253,7 @@ Los tiempos y los base64 de estos ejemplos están calculados. Los offsets y tama
 
 ### MP3 (el caso más simple)
 
-Cada frame MP3 se copia tal cual. El archivo empieza con una etiqueta ID3 de 2048 bytes, que el parser salta. 1152 muestras a 44,1 kHz son 26 122 448,98 ns por frame.
+Cada frame MP3 se copia tal cual. El archivo empieza con una etiqueta ID3 de 2048 bytes, que el parser salta. Una trama Xing/Info tampoco es audio y también se salta. Si lleva etiqueta LAME, su retardo del encoder más el del decoder (529 muestras) va en `codec_delay_ns` y adelanta los `pts_ns` como en Opus, y su relleno final va en `discard_padding_ns` del último frame. Sin etiqueta LAME no se inventa ningún retardo. 1152 muestras a 44,1 kHz son 26 122 448,98 ns por frame.
 
 ```json
 {"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"mp3-parser","version":"0.1.0"},"sources":[{"id":0,"size":5234123,"sha256":"9f86d0…"}]}
@@ -303,7 +316,7 @@ Si el archivo no está en UTF-8, el parser convierte el texto y lo escribe como 
 
 Una salida es válida solo si cumple todo lo siguiente. Un validador estructural puede comprobar todo salvo la regla 5 y los campos que dependen del mapping del códec; esos los cubre el nivel `--codec-aware`.
 
-- [ ] Cada línea es JSON válido y tiene un `type` conocido.
+- [ ] Cada línea es JSON válido y tiene un `type` conocido, sin campos desconocidos.
 - [ ] El orden es `header`, `unit`\*, `track`, `end`, sin líneas extra; o, en un fallo, `header`? `unit`\* `error`, con `error` como última línea.
 - [ ] La serialización es canónica (LF, sin espacios, escapes y orden de campos como en este documento).
 - [ ] Ningún campo vale `null`: lo desconocido se omite.
@@ -316,7 +329,9 @@ Una salida es válida solo si cumple todo lo siguiente. Un validador estructural
 - [ ] Los frames con `duration_required` tienen `duration_ns` ≥ 0.
 - [ ] Todas las marcas son conocidas y no se repiten dentro de un frame.
 - [ ] Los `id` de `block_additions` son ≥ 1 y únicos dentro de su frame. Los ≥ 2 tienen un mapping con ese `id_value`.
-- [ ] `codec_id` no está vacío y `track_type` es un valor conocido.
+- [ ] `codec_id` no está vacío y `track_type` es un valor conocido. `video` y `audio` solo aparecen con su `track_type`.
+- [ ] `code` de `error` es uno de los códigos de la tabla.
+- [ ] `codec_delay_ns` y `seek_preroll_ns` ≥ 0; `bit_depth`, `display_width`, `display_height` y `default_decoded_field_duration_ns` > 0; el recorte deja algún píxel.
 - [ ] Vídeo: `pixel_width` y `pixel_height` > 0. Audio: `sampling_frequency` con ambos términos > 0 y `channels` > 0.
 - [ ] Los racionales tienen numerador y denominador > 0.
 - [ ] `projection.private` falta con `rectangular` y existe con los otros tipos.

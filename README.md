@@ -5,7 +5,7 @@ Parsers de códec que describen una pista con el formato **VMKV Parser Output v1
 sus bytes en el archivo original, sin copiar los datos.
 
 - Spec: [`docs/spec/VMKV_Parser_Output_Format_v1.md`](docs/spec/VMKV_Parser_Output_Format_v1.md)
-- Decisiones sobre puntos abiertos del spec: [`docs/spec/DECISIONS.md`](docs/spec/DECISIONS.md)
+- Por qué el spec dice lo que dice: [`docs/spec/DECISIONS.md`](docs/spec/DECISIONS.md)
 - Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) (fase 0 completa; aún no hay parsers de códec)
 
 ## Crates
