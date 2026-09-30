@@ -52,6 +52,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 - Método: remuxar con `ffmpeg -c copy` a `.mkv`, hacer `ffprobe -show_packets -show_data` sobre ese MKV (ya en el mapping de Matroska) y comparar con el payload reconstruido desde el `.vtj`.
 - Comparar tiempos relativos: FFmpeg puede desplazar tiempos de inicio (`-copyts`) y trata el pre-skip de Opus a su manera. Opus se revisa a mano.
 - Corpus real con archivos truncados y corruptos: deben fallar con el código de error correcto.
+- [x] `vtj-stress`: variantes truncadas y mutadas de cada entrada, con oráculo del contrato. Hay un test `robustness` por parser en CI. Se han probado 138 000 variantes de los fixtures y 46 800 de 52 MP3 reales, sin problemas.
 
 ## Dificultad estimada
 

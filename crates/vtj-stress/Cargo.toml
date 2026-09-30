@@ -1,0 +1,8 @@
+[package]
+name = "vtj-stress"
+description = "Robustness harness: runs VMKV parser binaries on mutated inputs and checks the contract"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vtj = { path = "../vtj" }
