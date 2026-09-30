@@ -1,0 +1,5 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"ogg-opus-parser","version":"0.1.0"},"sources":[{"id":0,"size":4133}]}
+{"type":"unit","pts_ns":-6500000,"duration_ns":20000000,"flags":["random_access"],"payload":[["src",0,3895,120]]}
+{"type":"unit","pts_ns":13500000,"duration_ns":20000000,"flags":["random_access"],"payload":[["src",0,4015,118]]}
+{"type":"track","track_type":"audio","codec_id":"A_OPUS","codec_private":[["src",0,28,19]],"codec_delay_ns":6500000,"seek_preroll_ns":80000000,"audio":{"sampling_frequency":[48000,1],"channels":2}}
+{"type":"end","unit_count":2}
