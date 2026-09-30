@@ -1,9 +1,13 @@
-//! Codec-independent Ogg demuxer (RFC 3533) for VMKV parsers.
+//! Ogg demuxer (RFC 3533) used by this parser.
 //!
 //! Packets are returned as lists of source extents, never copied, so a packet
 //! split across pages becomes several `src` chunks. Every page's CRC and
 //! sequence number is checked. Only a single logical stream is supported:
 //! multiplexed or chained streams fail with `UNSUPPORTED_FEATURE`.
+//!
+//! The demuxer is part of this parser on purpose: parsers share no container
+//! or codec logic, so a change here can only change this parser's output,
+//! which is versioned by this crate.
 
 use vtj::cli::ParseError;
 use vtj::source::SourceFile;

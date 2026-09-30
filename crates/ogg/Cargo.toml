@@ -1,8 +1,0 @@
-[package]
-name = "vmkv-ogg"
-description = "Codec-independent Ogg demuxer that reports packets as source extents"
-version = "0.1.0"
-edition.workspace = true
-
-[dependencies]
-vtj = { path = "../vtj" }

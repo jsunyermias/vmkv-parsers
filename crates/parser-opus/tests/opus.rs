@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vmkv_ogg::{crc32, OggReader};
+use vmkv_parser_opus::ogg::{crc32, OggReader};
 use vmkv_parser_opus::{packet_samples, Opus};
 use vtj::cli;
 use vtj::source::SourceFile;

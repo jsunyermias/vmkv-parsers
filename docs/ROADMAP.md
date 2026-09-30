@@ -29,7 +29,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 1. [x] MP3 (`vmkv-parser-mp3`) y el lanzador `vmkv-parse`. Trama Xing/Info y etiqueta LAME según la decisión 16.
 2. [x] AAC en ADTS (`vmkv-parser-aac`). La longitud de la cabecera (7 o 9 bytes con CRC) se lee de la cabecera; nunca se asume 7.
-3. [x] Ogg Opus (`vmkv-ogg` + `vmkv-parser-opus`). Demuxer Ogg independiente del códec (entrega paquetes con extents, granule position, BOS/EOS). Cubre tiempos negativos, `codec_delay_ns`, paquetes partidos entre páginas y `discard_padding_ns`. Vorbis y FLAC-Ogg salen después casi gratis.
+3. [x] Ogg Opus (`vmkv-parser-opus`, con su propio demuxer Ogg: paquetes con extents, granule position, BOS/EOS). Cubre tiempos negativos, `codec_delay_ns`, paquetes partidos entre páginas y `discard_padding_ns`. Vorbis y FLAC-Ogg partirán de una copia de ese demuxer (decisión 30).
 
 ## Fase 2. Subtítulos
 

@@ -14,4 +14,3 @@ path = "src/main.rs"
 
 [dependencies]
 vtj = { path = "../vtj" }
-vmkv-ogg = { path = "../ogg" }

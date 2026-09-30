@@ -36,6 +36,7 @@ normativa. Esta página solo explica el porqué de cada una.
 | 27 | Opus: `sampling_frequency` es 48000 y `seek_preroll_ns` 80 ms; la frecuencia de entrada de OpusHead se ignora | Opus siempre decodifica a 48 kHz; son los valores del mapping de Matroska |
 | 28 | Opus: la posición granular de cada página se contrasta con las duraciones de los TOC; solo la página EOS puede quedarse corta (recorte final), y el recorte no puede exceder el último paquete | Un desajuste en otra página indica un flujo corrupto; un recorte mayor que un paquete no es representable con `discard_padding_ns` de una unidad |
 | 29 | Opus: si la primera página de audio es EOS y su posición granular es menor que lo que completa, el audio empieza en 0 y la diferencia es recorte final | Es el caso que RFC 7845 permite para flujos muy cortos |
+| 30 | Cada parser es autónomo: no comparte lógica de códec ni de contenedor (salto de etiquetas, demuxer Ogg) con otros parsers, aunque la repita. `vtj` solo contiene formato y contrato | La salida de un parser depende de su `parser.version` (regla 8); una lógica compartida cambiaría la salida de varios parsers sin que ninguno cambie de versión |
 
 ## Convenciones de la implementación (fuera del formato)
 

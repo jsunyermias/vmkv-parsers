@@ -1,14 +1,16 @@
-//! Metadata tags wrapped around elementary audio streams (MP3, ADTS).
+//! Metadata tags wrapped around the elementary stream.
 //!
-//! These tags are not audio: parsers skip them and describe only the range
-//! between them.
+//! These tags are not audio: the parser skips them and describes only the
+//! range between them. Other parsers keep their own copy on purpose: parsers
+//! share no codec or container logic, so a change here can only change this
+//! parser's output, which is versioned by this crate.
 //!
 //! - Leading: ID3v2 (repeated tags are skipped too).
 //! - Trailing, in any order: ID3v1 (`TAG`, 128 bytes), APEv2 (`APETAGEX`
 //!   footer) and Lyrics3v2 (`LYRICS200`).
 
-use crate::cli::ParseError;
-use crate::source::SourceFile;
+use vtj::cli::ParseError;
+use vtj::source::SourceFile;
 
 /// Byte range `[start, end)` of a source that remains after removing tags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,7 +100,7 @@ mod tests {
     use super::*;
 
     fn range(bytes: &[u8]) -> Result<AudioRange, ParseError> {
-        let dir = std::env::temp_dir().join(format!("vtj-tags-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("{}-tags-{}", env!("CARGO_PKG_NAME"), std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join(format!("{}.bin", bytes.len()));
         std::fs::write(&p, bytes).unwrap();
@@ -152,8 +154,8 @@ mod tests {
         assert_eq!(range(&[0xff; 50]).unwrap(), AudioRange { start: 0, end: 50 });
         let mut bad = id3v2(10, false);
         bad[6] = 0x80;
-        assert_eq!(range(&bad).unwrap_err().code, crate::ErrorCode::InvalidBitstream);
+        assert_eq!(range(&bad).unwrap_err().code, vtj::ErrorCode::InvalidBitstream);
         let cut = id3v2(100, false)[..50].to_vec();
-        assert_eq!(range(&cut).unwrap_err().code, crate::ErrorCode::TruncatedBitstream);
+        assert_eq!(range(&cut).unwrap_err().code, vtj::ErrorCode::TruncatedBitstream);
     }
 }

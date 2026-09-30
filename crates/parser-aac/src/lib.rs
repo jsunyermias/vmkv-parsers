@@ -13,6 +13,8 @@
 //! - Rejected: several raw data blocks per frame, channel configuration 0
 //!   (program config element in the payload) and parameter changes.
 
+pub mod tags;
+
 use vtj::cli::ParseError;
 use vtj::*;
 

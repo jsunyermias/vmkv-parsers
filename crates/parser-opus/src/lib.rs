@@ -12,7 +12,9 @@
 //!   end-of-stream page a smaller granule means end trimming, written as
 //!   `discard_padding_ns` of the last unit.
 
-use vmkv_ogg::{OggReader, Packet};
+pub mod ogg;
+
+use ogg::{OggReader, Packet};
 use vtj::cli::ParseError;
 use vtj::*;
 
