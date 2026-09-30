@@ -89,6 +89,42 @@ fn trailing_id3v1_is_skipped() {
     assert_eq!(units(&out), units(&run(&media("mp3_plain.mp3")).1));
 }
 
+/// Taggers in the wild leave zero padding outside the declared ID3v2 size
+/// (931 bytes in real files) and before trailing tags; it is skipped.
+#[test]
+fn zero_padding_between_tags_and_audio() {
+    let plain = std::fs::read(media("mp3_plain.mp3")).unwrap();
+    let mut b = vec![b'I', b'D', b'3', 3, 0, 0, 0, 0, 0, 5, 1, 2, 3, 4, 5];
+    b.extend([0u8; 931]);
+    let start = b.len();
+    b.extend(&plain);
+    b.extend([0u8; 300]);
+    let mut v1 = b"TAG".to_vec();
+    v1.resize(128, b' ');
+    b.extend(v1);
+    let (code, out) = run(&temp("zeros.mp3", &b));
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(check_valid(&out), Outcome::Success);
+    let u = units(&out);
+    assert_eq!(u.len(), units(&run(&media("mp3_plain.mp3")).1).len());
+    assert!(u[0].contains(&format!(r#""payload":[["src",0,{start},384]]"#)), "{}", u[0]);
+}
+
+/// A last frame whose data ends in zero bytes (digital silence) is audio,
+/// not padding: it must keep its full length.
+#[test]
+fn last_frame_ending_in_zeros_is_kept_whole() {
+    let mut b = std::fs::read(media("mp3_plain.mp3")).unwrap();
+    let n = b.len();
+    b[n - 200..].fill(0);
+    b.extend([0u8; 2]);
+    let (code, out) = run(&temp("silent_end.mp3", &b));
+    assert_eq!(code, 0, "{out}");
+    let u = units(&out);
+    assert_eq!(u.len(), 43);
+    assert!(u[42].contains(&format!(r#""payload":[["src",0,{},384]]"#, n - 384)), "{}", u[42]);
+}
+
 #[test]
 fn truncated_last_frame() {
     let b = std::fs::read(media("mp3_plain.mp3")).unwrap();

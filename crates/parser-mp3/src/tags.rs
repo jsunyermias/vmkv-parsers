@@ -95,6 +95,40 @@ pub fn audio_range(src: &mut SourceFile) -> Result<AudioRange, ParseError> {
     Ok(AudioRange { start, end })
 }
 
+/// Moves the start of `range` past a run of zero bytes. Taggers leave such
+/// padding outside the size an ID3v2 tag declares (931 bytes in files seen
+/// in the wild). A zero byte cannot start an MPEG audio frame, so this drops
+/// no audio. Zeros after the last frame are handled by [`is_zero_padding`]:
+/// trimming them here would eat into a last frame whose data ends in zeros.
+pub fn skip_leading_zeros(src: &mut SourceFile, range: AudioRange) -> Result<AudioRange, ParseError> {
+    const CHUNK: u64 = 4096;
+    let mut start = range.start;
+    while start < range.end {
+        let n = CHUNK.min(range.end - start);
+        let buf = read(src, start, n as usize)?;
+        if let Some(i) = buf.iter().position(|&b| b != 0) {
+            return Ok(AudioRange { start: start + i as u64, end: range.end });
+        }
+        start += n;
+    }
+    Ok(AudioRange { start: range.end, end: range.end })
+}
+
+/// Whether every byte in `[from, to)` is zero: padding left after the last
+/// complete frame, before the trailing tags.
+pub fn is_zero_padding(src: &mut SourceFile, from: u64, to: u64) -> Result<bool, ParseError> {
+    const CHUNK: u64 = 4096;
+    let mut p = from;
+    while p < to {
+        let n = CHUNK.min(to - p);
+        if read(src, p, n as usize)?.iter().any(|&b| b != 0) {
+            return Ok(false);
+        }
+        p += n;
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +181,28 @@ mod tests {
         v1.extend([b' '; 125]);
         f.extend(v1);
         assert_eq!(range(&f).unwrap(), AudioRange { start, end });
+    }
+
+    #[test]
+    fn zero_padding_around_the_audio() {
+        let mut f = id3v2(10, false);
+        let tag_end = f.len() as u64;
+        f.extend([0u8; 931]);
+        let start = f.len() as u64;
+        f.extend([0xff, 0xfb, 0x00, 0x00, 0x00]);
+        let frame_end = f.len() as u64;
+        f.extend([0u8; 5000]);
+        let dir = std::env::temp_dir().join(format!("{}-zeros-{}", env!("CARGO_PKG_NAME"), std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("z.bin");
+        std::fs::write(&p, &f).unwrap();
+        let mut src = SourceFile::open(0, &p).unwrap();
+        let r = audio_range(&mut src).unwrap();
+        assert_eq!(r.start, tag_end);
+        let r = skip_leading_zeros(&mut src, r).unwrap();
+        assert_eq!(r, AudioRange { start, end: f.len() as u64 }, "trailing zeros are left to the frame loop");
+        assert!(is_zero_padding(&mut src, frame_end, r.end).unwrap());
+        assert!(!is_zero_padding(&mut src, start, r.end).unwrap());
     }
 
     #[test]
