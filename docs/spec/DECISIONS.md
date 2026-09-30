@@ -23,7 +23,6 @@ normativa. Esta página solo explica el porqué de cada una.
 | 14 | Nuevo código `SOURCE_UNREADABLE` para errores de E/S de la fuente; una lectura corta sigue siendo `TRUNCATED_BITSTREAM` | Ningún código existente describía un fallo de E/S; `UNREPRESENTABLE_IN_VMKV` era engañoso |
 | 15 | Los parsers de referencia no escriben `sources[].path` | Dependería de cómo se invoque el parser y rompería la regla 8 |
 | 16 | MP3: la trama Xing/Info se salta; con etiqueta LAME, retardo del encoder + 529 en `codec_delay_ns` y relleno final en `discard_padding_ns`; sin etiqueta LAME no se inventa nada | Regla 4 (tiempos reales, como Opus) y regla 7 (no inventar) |
-
 | 17 | Un binario por parser, `vmkv-parser-<códec>`, más el lanzador `vmkv-parse` al estilo de `git` | Aislamiento de fallos entre parsers, parsers en cualquier lenguaje (el contrato es CLI + `.vtj`) y versiones independientes |
 | 18 | CRC de la etiqueta LAME: se acepta tanto la calculada sobre los bytes previos al campo como la de FFmpeg (190 bytes, con el campo a cero y relleno con ceros) | En MPEG-1 estéreo coinciden; en mono o MPEG-2, FFmpeg usa la segunda. Con cualquier otra CRC no se usa la etiqueta (regla 7) |
 | 19 | Si la trama Xing declara un número de frames distinto del real, se ignora el relleno LAME, pero se mantiene el retardo | El archivo fue recortado o concatenado: el relleno ya no describe su final, mientras que el inicio sigue siendo válido |
@@ -32,6 +31,12 @@ normativa. Esta página solo explica el porqué de cada una.
 | 22 | ADTS: sin `codec_delay_ns` ni `output_sampling_frequency` | ADTS no indica el retardo del encoder ni si hay SBR implícito; no se inventan (regla 7) |
 | 23 | ADTS: solo un raw data block por frame; la configuración de canales 0 (PCE) se rechaza con `UNSUPPORTED_FEATURE` | Varios bloques sin CRC no tienen límites conocidos sin decodificar, y un PCE tendría que extraerse del payload para ir en el AudioSpecificConfig |
 | 24 | ADTS: la CRC no se verifica | Cubre bits del raw data block que solo se conocen decodificando; la sincronía y la longitud de cada frame ya detectan la corrupción de estructura |
+| 25 | Ogg: un solo flujo lógico; los flujos multiplexados o encadenados fallan con `UNSUPPORTED_FEATURE` | Un `.vtj` describe una pista; elegir flujo o encadenar cambios de parámetros queda para cuando haga falta |
+| 26 | Ogg: se verifican la CRC y la secuencia de cada página, y la coherencia del flag de continuación | Una página perdida o corrupta pierde datos: se falla antes que inventar (regla 7) |
+| 27 | Opus: `sampling_frequency` es 48000 y `seek_preroll_ns` 80 ms; la frecuencia de entrada de OpusHead se ignora | Opus siempre decodifica a 48 kHz; son los valores del mapping de Matroska |
+| 28 | Opus: la posición granular de cada página se contrasta con las duraciones de los TOC; solo la página EOS puede quedarse corta (recorte final), y el recorte no puede exceder el último paquete | Un desajuste en otra página indica un flujo corrupto; un recorte mayor que un paquete no es representable con `discard_padding_ns` de una unidad |
+| 29 | Opus: si la primera página de audio es EOS y su posición granular es menor que lo que completa, el audio empieza en 0 y la diferencia es recorte final | Es el caso que RFC 7845 permite para flujos muy cortos |
+| 30 | Cada parser es autónomo: no comparte lógica de códec ni de contenedor (salto de etiquetas, demuxer Ogg) con otros parsers, aunque la repita. `vtj` solo contiene formato y contrato | La salida de un parser depende de su `parser.version` (regla 8); una lógica compartida cambiaría la salida de varios parsers sin que ninguno cambie de versión |
 
 ## Convenciones de la implementación (fuera del formato)
 

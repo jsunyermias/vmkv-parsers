@@ -17,6 +17,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/vmkv-parse` | Lanzador `vmkv-parse <códec>`: ejecuta `vmkv-parser-<códec>` |
 | `crates/parser-mp3` | `vmkv-parser-mp3`: MPEG-1/2/2.5 Layer III, con retardo y relleno de la etiqueta LAME |
 | `crates/parser-aac` | `vmkv-parser-aac`: AAC en ADTS, sin cabecera ADTS en el payload y con AudioSpecificConfig en `codec_private` |
+| `crates/parser-opus` | `vmkv-parser-opus`: Opus en Ogg, con su propio demuxer Ogg, pre-skip, timeline negativo y recorte final |
 
 ## Binarios
 
@@ -50,6 +51,12 @@ Códigos de salida de `vtj-validate`: 0 éxito válido, 1 inválido, 2 error de 
 3 salida de fallo bien formada.
 
 ## Escribir un parser
+
+Cada parser es autónomo: no comparte lógica de códec ni de contenedor con otros parsers,
+aunque eso la repita (por ejemplo, MP3 y AAC tienen cada uno su copia del salto de
+etiquetas ID3/APE, y el demuxer Ogg vive dentro del parser de Opus). Así, un cambio solo
+puede alterar la salida del parser cuya versión cambia (regla 8). `vtj` contiene únicamente
+el formato y el contrato: tipos, writer, timing, validador y CLI.
 
 Un parser es un crate con una librería (`struct` que implementa `vtj::Parser`, para testearla
 en proceso) y un binario `vmkv-parser-<códec>` que llama a `vtj::cli::main`. Su

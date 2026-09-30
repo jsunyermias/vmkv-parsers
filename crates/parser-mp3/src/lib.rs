@@ -10,6 +10,8 @@
 //!   the last frame. Without a valid LAME tag no delay is assumed.
 //! - Free-format bitrate, other layers and parameter changes are rejected.
 
+pub mod tags;
+
 use vtj::cli::ParseError;
 use vtj::*;
 

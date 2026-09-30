@@ -103,6 +103,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vmkv-parser-opus"
+version = "0.1.0"
+dependencies = [
+ "vtj",
+]
+
+[[package]]
 name = "vtj"
 version = "0.1.0"
 dependencies = [

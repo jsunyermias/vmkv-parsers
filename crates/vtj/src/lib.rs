@@ -11,7 +11,6 @@ pub mod check;
 pub mod cli;
 pub mod json;
 pub mod source;
-pub mod tags;
 pub mod time;
 pub mod types;
 pub mod validate;
