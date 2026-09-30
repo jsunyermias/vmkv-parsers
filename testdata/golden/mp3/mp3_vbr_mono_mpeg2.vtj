@@ -1,4 +1,4 @@
-{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-mp3","version":"0.3.0"},"sources":[{"id":0,"size":1840,"sha256":"79a086c596bfe05d1a7ff2c21238ce522b6b32c483f46fb88842dcc8480c3984"}]}
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-mp3","version":"0.4.0"},"sources":[{"id":0,"size":1840,"sha256":"79a086c596bfe05d1a7ff2c21238ce522b6b32c483f46fb88842dcc8480c3984"}]}
 {"type":"unit","pts_ns":-50113379,"duration_ns":26122449,"flags":["random_access"],"payload":[["src",0,227,365]]}
 {"type":"unit","pts_ns":-23990930,"duration_ns":26122449,"flags":["random_access"],"payload":[["src",0,592,130]]}
 {"type":"unit","pts_ns":2131519,"duration_ns":26122449,"flags":["random_access"],"payload":[["src",0,722,26]]}

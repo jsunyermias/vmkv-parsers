@@ -1,13 +1,14 @@
 //! The common parser contract, exercised in process with a test-only parser
 //! that cuts its input into fixed-size frames.
 
-use vtj::cli::{self, ParamKind, ParamSpec, FRAME_RATE};
+use vtj::cli::{self, ParamSpec, FRAME_RATE};
 use vtj::validate::{validate, Options, Outcome};
 use vtj::*;
 
 struct FixedFrames;
 
-const FRAME_SIZE: ParamSpec = ParamSpec { name: "frame_size", kind: ParamKind::Int, help: "bytes per frame" };
+const FRAME_SIZE: ParamSpec = ParamSpec::int("frame_size", 1, 1 << 20, "bytes per frame").default("4");
+const MODE: ParamSpec = ParamSpec::choice("mode", &["strict", "lenient"], "a policy").default("strict");
 
 impl Parser for FixedFrames {
     fn name(&self) -> &'static str {
@@ -17,7 +18,15 @@ impl Parser for FixedFrames {
         "0.0.1"
     }
     fn params(&self) -> &'static [ParamSpec] {
-        &[FRAME_RATE, FRAME_SIZE]
+        &[FRAME_RATE, FRAME_SIZE, MODE]
+    }
+    fn check_params(&self, params: &std::collections::BTreeMap<String, ParamValue>) -> Result<(), String> {
+        match (params.get("mode"), params.get("frame_size")) {
+            (Some(ParamValue::String(m)), Some(_)) if m == "lenient" => {
+                Err("--mode lenient conflicts with --frame-size".into())
+            }
+            _ => Ok(()),
+        }
     }
     fn parse(&self, ctx: &mut Context<'_>) -> Result<Track, ParseError> {
         let rate = ctx.param_rational("frame_rate").ok_or_else(|| {
@@ -177,7 +186,7 @@ fn help_version_and_output_file() {
     let h = run(&FixedFrames, &["--help"]);
     assert_eq!(h.code, 0);
     let help = String::from_utf8(h.out).unwrap();
-    assert!(help.contains("--frame-rate <VALUE>") && help.contains("--frame-size <VALUE>"), "{help}");
+    assert!(help.contains("--frame-rate <N/D>") && help.contains("--frame-size <N>"), "{help}");
     let v = run(&FixedFrames, &["-V"]);
     assert_eq!(String::from_utf8(v.out).unwrap(), "fixed-frames 0.0.1\n");
 
@@ -239,4 +248,27 @@ fn output_file_is_replaced_whole_on_success_and_failure() {
     assert_eq!(r.code, cli::EXIT_PARSE_ERROR);
     assert_eq!(outcome(&std::fs::read(&out).unwrap()), Outcome::Failure, "failure outputs are delivered too");
     assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+}
+
+#[test]
+fn typed_parameters_and_cross_checks() {
+    let src = input("typed.bin", &[3u8; 8]);
+    for (args, needle) in [
+        (vec!["--frame-size", "0"], "outside 1..=1048576"),
+        (vec!["--mode", "loose"], "not one of strict, lenient"),
+        (vec!["--mode", "lenient", "--frame-size", "2"], "conflicts with --frame-size"),
+    ] {
+        let mut a = args.clone();
+        a.extend(["--frame-rate", "25", src.as_str()]);
+        let r = run(&FixedFrames, &a);
+        assert_eq!(r.code, cli::EXIT_USAGE, "{args:?}");
+        assert!(r.err.contains(needle), "{args:?}: {}", r.err);
+        assert!(r.out.is_empty());
+    }
+    let r = run(&FixedFrames, &["--mode", "lenient", "--frame-rate", "25", &src]);
+    assert_eq!(r.code, 0, "{}", r.err);
+    assert!(String::from_utf8(r.out).unwrap().contains(r#""params":{"frame_rate":[25,1],"mode":"lenient"}"#));
+    let help = String::from_utf8(run(&FixedFrames, &["--help"]).out).unwrap();
+    assert!(help.contains("--mode <strict|lenient>") && help.contains("(default: strict)"), "{help}");
+    assert!(help.contains("--frame-size <N>") && help.contains("[1..=1048576] (default: 4)"), "{help}");
 }
