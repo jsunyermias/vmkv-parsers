@@ -136,10 +136,7 @@ fn unreadable_source_gives_headerless_failure() {
     assert_eq!(r.code, cli::EXIT_PARSE_ERROR);
     assert_eq!(outcome(&r.out), Outcome::Failure);
     let text = String::from_utf8(r.out).unwrap();
-    assert_eq!(
-        text,
-        "{\"type\":\"error\",\"code\":\"UNREPRESENTABLE_IN_VMKV\",\"message\":\"source 0 cannot be read\"}\n"
-    );
+    assert_eq!(text, "{\"type\":\"error\",\"code\":\"SOURCE_UNREADABLE\",\"message\":\"source 0 cannot be read\"}\n");
     assert!(r.err.contains("/nonexistent/vtj/input.bin"), "details go to stderr only");
 }
 

@@ -14,7 +14,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 - [x] Redondeo: fórmula normativa `floor((2·p·10^9 + q) / (2·q))`, con división con suelo y 128 bits. Tests con positivos, negativos y empates. (`time.rs`)
 - [x] Serialización canónica: UTF-8 sin BOM, LF en todas las líneas, sin espacios, escapes mínimos, orden de campos normativo, mensajes de error deterministas. (`json.rs`, `types.rs`)
 - [x] Checklist: línea `error`, sin `null`, `params`. (`check.rs`, `validate.rs`, `tests/checklist.rs`)
-- [ ] Resolver las cuestiones abiertas de [`spec/DECISIONS.md`](spec/DECISIONS.md) e incorporarlas al texto del spec.
+- [x] Resolver las cuestiones abiertas e incorporarlas al texto del spec (motivos en [`spec/DECISIONS.md`](spec/DECISIONS.md)).
 
 ## Fase 0b. Librería común
 
@@ -27,7 +27,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 ## Fase 1. Audio simple
 
-1. MP3. Sirve para congelar las APIs internas antes de seguir.
+1. MP3. Sirve para congelar las APIs internas antes de seguir. Trama Xing/Info y etiqueta LAME según la decisión 16.
 2. AAC en ADTS. La longitud de la cabecera (7 o 9 bytes con CRC) se lee de la cabecera; nunca se asume 7.
 3. Ogg Opus. Demuxer Ogg independiente del códec (entrega paquetes con extents, granule position, BOS/EOS). Cubre tiempos negativos, `codec_delay_ns`, paquetes partidos entre páginas y `discard_padding_ns`. Vorbis y FLAC-Ogg salen después casi gratis.
 

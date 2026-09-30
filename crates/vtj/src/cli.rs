@@ -97,7 +97,7 @@ impl From<io::Error> for ParseError {
         if e.kind() == io::ErrorKind::UnexpectedEof {
             ParseError::truncated("unexpected end of source")
         } else {
-            ParseError::new(ErrorCode::UnrepresentableInVmkv, "source read failed")
+            ParseError::new(ErrorCode::SourceUnreadable, "source read failed")
         }
     }
 }
@@ -342,10 +342,7 @@ fn execute<W: Write>(
             Ok(s) => sources.push(s),
             Err(e) => {
                 let _ = writeln!(stderr, "{}: cannot read {path}: {e}", p.name());
-                return Err(Some(ParseError::new(
-                    ErrorCode::UnrepresentableInVmkv,
-                    format!("source {i} cannot be read"),
-                )));
+                return Err(Some(ParseError::new(ErrorCode::SourceUnreadable, format!("source {i} cannot be read"))));
             }
         }
     }
