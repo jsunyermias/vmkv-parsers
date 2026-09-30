@@ -188,3 +188,55 @@ fn help_version_and_output_file() {
     assert!(r.out.is_empty());
     assert_eq!(outcome(&std::fs::read(&out).unwrap()), Outcome::Success);
 }
+
+fn leftovers(dir: &std::path::Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect()
+}
+
+#[test]
+fn output_that_is_an_input_is_refused() {
+    let dir = std::env::temp_dir().join(format!("vtj-alias-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("in.bin");
+    std::fs::write(&src, [9u8; 8]).unwrap();
+    let hard = dir.join("hard.vtj");
+    let _ = std::fs::remove_file(&hard);
+    std::fs::hard_link(&src, &hard).unwrap();
+    let mut aliases = vec![src.clone(), hard.clone()];
+    #[cfg(unix)]
+    {
+        let sym = dir.join("sym.vtj");
+        let _ = std::fs::remove_file(&sym);
+        std::os::unix::fs::symlink(&src, &sym).unwrap();
+        aliases.push(sym);
+    }
+    for out in aliases {
+        let r = run(&FixedFrames, &["--frame-rate", "25", "-o", out.to_str().unwrap(), src.to_str().unwrap()]);
+        assert_eq!(r.code, cli::EXIT_USAGE, "{}", out.display());
+        assert!(r.err.contains("refusing to overwrite"), "{}", r.err);
+        assert_eq!(std::fs::read(&src).unwrap(), [9u8; 8], "the input is untouched");
+    }
+    assert!(leftovers(&dir).is_empty());
+}
+
+#[test]
+fn output_file_is_replaced_whole_on_success_and_failure() {
+    let dir = std::env::temp_dir().join(format!("vtj-out-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("in.bin");
+    std::fs::write(&src, [1u8; 8]).unwrap();
+    let out = dir.join("out.vtj");
+    std::fs::write(&out, "stale").unwrap();
+    let r = run(&FixedFrames, &["--frame-rate", "25", "-o", out.to_str().unwrap(), src.to_str().unwrap()]);
+    assert_eq!(r.code, 0);
+    assert_eq!(outcome(&std::fs::read(&out).unwrap()), Outcome::Success);
+    let r = run(&FixedFrames, &["-o", out.to_str().unwrap(), src.to_str().unwrap()]);
+    assert_eq!(r.code, cli::EXIT_PARSE_ERROR);
+    assert_eq!(outcome(&std::fs::read(&out).unwrap()), Outcome::Failure, "failure outputs are delivered too");
+    assert!(leftovers(&dir).is_empty(), "{:?}", leftovers(&dir));
+}

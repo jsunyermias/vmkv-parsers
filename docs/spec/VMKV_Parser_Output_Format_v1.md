@@ -112,11 +112,16 @@ Cada línea `unit` es un frame tal como lo guardará Matroska.
 
 | Marca | Cuándo ponerla |
 | --- | --- |
-| `random_access` | Se puede empezar a reproducir aquí sin frames anteriores. En audio sin dependencias, en todos los frames |
+| `random_access` | Punto de entrada: se puede empezar a decodificar en este frame sin los anteriores. Si la pista declara `seek_preroll_ns`, la salida es correcta tras decodificar ese preroll desde el punto de entrada. Es lo que Matroska llama keyframe |
 | `invisible` | El frame se decodifica pero no se muestra |
 | `duration_required` | La duración debe guardarse aunque se pueda deducir. Exige `duration_ns` ≥ 0 |
 
-`random_access` NO significa solo "frame intra". Un frame intra que no reinicia el estado del decodificador no lleva la marca.
+`random_access` NO significa solo "frame intra". En vídeo, un frame intra que no reinicia el estado del decodificador no lleva la marca: tiene que poder decodificarse sin ningún frame anterior.
+
+En audio se marcan todos los frames cuyo códec permite empezar a decodificar en cualquiera de ellos:
+
+- Con preroll declarado (Opus): la dependencia de los paquetes anteriores queda acotada por `seek_preroll_ns`.
+- Con dependencias cortas que el decodificador tolera por diseño al empezar: la reserva de bits de MP3 (`main_data_begin`, como mucho 511 bytes hacia atrás) solo puede afectar a los primeros frames decodificados tras un salto, cuyos datos que falten rellena el decodificador. Matroska y los reproductores tratan esos frames como keyframes, y un criterio estricto dejaría la pista sin ningún punto de acceso.
 
 Una marca desconocida invalida la salida. Así, un error de escritura como `"randon_access"` no pasa inadvertido.
 

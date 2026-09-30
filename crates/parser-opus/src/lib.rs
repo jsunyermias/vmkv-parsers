@@ -1,7 +1,8 @@
 //! Opus in Ogg (`A_OPUS`, RFC 7845).
 //!
 //! - `codec_private` is the OpusHead packet, referenced in the source.
-//! - The OpusTags packet is skipped.
+//! - The OpusTags packet is skipped. As RFC 7845 requires, the pages that end
+//!   OpusHead and OpusTags must have granule position 0.
 //! - Each audio packet is one unit; a packet split across pages becomes
 //!   several `src` chunks. Durations come from the TOC byte (RFC 6716).
 //! - Time runs at 48 kHz. The first sample is at
@@ -124,8 +125,15 @@ impl Parser for Opus {
         if tags.prefix(ctx.source(0), 8)? != b"OpusTags" {
             return Err(ParseError::invalid("the second packet is not an OpusTags header"));
         }
-        if tags.page_end.is_none() {
-            return Err(ParseError::invalid("audio data starts on the page that ends the OpusTags header"));
+        match tags.page_end {
+            None => return Err(ParseError::invalid("audio data starts on the page that ends the OpusTags header")),
+            Some(end) if end.granule != 0 => {
+                return Err(ParseError::invalid(format!(
+                    "the page that ends the OpusTags header has granule position {} instead of 0",
+                    end.granule
+                )));
+            }
+            Some(_) => {}
         }
 
         let pre_skip = head.pre_skip as i128;
