@@ -27,7 +27,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 ## Fase 1. Audio simple
 
-1. MP3. Sirve para congelar las APIs internas antes de seguir. Trama Xing/Info y etiqueta LAME según la decisión 16.
+1. [x] MP3 (`vmkv-parser-mp3`) y el lanzador `vmkv-parse`. Trama Xing/Info y etiqueta LAME según la decisión 16.
 2. AAC en ADTS. La longitud de la cabecera (7 o 9 bytes con CRC) se lee de la cabecera; nunca se asume 7.
 3. Ogg Opus. Demuxer Ogg independiente del códec (entrega paquetes con extents, granule position, BOS/EOS). Cubre tiempos negativos, `codec_delay_ns`, paquetes partidos entre páginas y `discard_padding_ns`. Vorbis y FLAC-Ogg salen después casi gratis.
 

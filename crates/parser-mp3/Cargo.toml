@@ -1,0 +1,16 @@
+[package]
+name = "vmkv-parser-mp3"
+description = "VMKV parser for MPEG-1/2/2.5 Layer III elementary streams (.mp3)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_mp3"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-mp3"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
