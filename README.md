@@ -15,6 +15,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/vtj` | Librería común: tipos, writer canónico, aritmética de tiempos exacta, checks, validador y contrato CLI de parsers |
 | `crates/vtj-validate` | Binario `vtj-validate`: validador estructural y `--codec-aware` |
 | `crates/vmkv-parse` | Lanzador `vmkv-parse <códec>`: ejecuta `vmkv-parser-<códec>` |
+| `crates/vtj-stress` | `vtj-stress`: ejecuta un parser sobre variantes dañadas de sus entradas y comprueba el contrato |
 | `crates/parser-mp3` | `vmkv-parser-mp3`: MPEG-1/2/2.5 Layer III, con retardo y relleno de la etiqueta LAME |
 | `crates/parser-aac` | `vmkv-parser-aac`: AAC en ADTS, sin cabecera ADTS en el payload y con AudioSpecificConfig en `codec_private` |
 | `crates/parser-opus` | `vmkv-parser-opus`: Opus en Ogg, con su propio demuxer Ogg, pre-skip, timeline negativo y recorte final |
@@ -124,3 +125,41 @@ Los streams sin tiempos declaran `vtj::cli::FRAME_RATE` en `params()` y fallan c
   tamaños de los frames se contrastaron con `ffprobe -show_packets`, y además los bytes de
   cada payload y el `codec_private` se compararon con un remux a MKV (`ffmpeg -c copy`,
   `ffprobe -show_data`).
+
+## Robustez (`vtj-stress`)
+
+`vtj-stress` ejecuta el binario de un parser como subproceso sobre copias mutadas de cada entrada. Cada variante debe:
+
+- terminar antes del timeout;
+- salir con 0 y una salida de éxito válida, o con 1 y una salida de fallo bien formada;
+- no producir errores `internal:`, que indican un fallo del parser detectado por el writer;
+- con `--repeat`, dar la misma salida dos veces.
+
+Todo lo demás se reporta como problema (pánico, señal, cuelgue, salida inválida...), junto con el comando exacto para reproducirlo.
+
+```bash
+cargo build --release
+# truncado en cada byte
+./target/release/vtj-stress testdata/media/*.mp3
+# todos los tipos, 1500 posiciones aleatorias, flips de un bit, ediciones de 4 bytes
+./target/release/vtj-stress --all-kinds --random-positions 1500 --bit-flips --len 4 \
+    --random-count 2000 --random-edits 5 --seed 1 testdata/media/*
+# solo la cola del archivo (etiquetas y últimos frames), cada 3 bytes
+./target/release/vtj-stress --kinds truncate,delete --from -2048 --step 3 cancion.mp3
+# una variante concreta, p. ej. la de un fallo reportado
+./target/release/vtj-stress --variant flip@1234:0x80 --keep fallos/ cancion.mp3
+```
+
+Las variaciones se eligen con precisión:
+
+- **Tipos**: `--kinds` (`truncate`, `flip`, `set`, `zero`, `delete`, `insert`, `dup`, `random`).
+- **Rango**: `--from`/`--to`, con offsets absolutos, negativos contados desde el final o `P%`.
+- **Posiciones**: `--step`, `--positions` o `--random-positions` con `--seed`.
+- **Parámetros de cada edición**: `--len`, `--masks`/`--bit-flips`, `--value` y `--random-count`/`--random-edits`.
+- **Variantes exactas**: `--variant`, repetible.
+- **Límite**: `--max-variants`.
+
+`vtj-stress --help` lista todas las opciones, incluidas `--jobs`, `--timeout-ms`, `--fail-fast`, `--keep`, `--list` y `--json`.
+
+Cada parser tiene un test `robustness` que ejecuta `vtj_stress::ci_suite()` sobre sus fixtures, unas 5 000–15 000 variantes, dentro de `cargo test`.
+

@@ -93,6 +93,7 @@ name = "vmkv-parser-aac"
 version = "0.1.0"
 dependencies = [
  "vtj",
+ "vtj-stress",
 ]
 
 [[package]]
@@ -100,6 +101,7 @@ name = "vmkv-parser-mp3"
 version = "0.3.0"
 dependencies = [
  "vtj",
+ "vtj-stress",
 ]
 
 [[package]]
@@ -107,6 +109,7 @@ name = "vmkv-parser-opus"
 version = "0.2.1"
 dependencies = [
  "vtj",
+ "vtj-stress",
 ]
 
 [[package]]
@@ -114,6 +117,13 @@ name = "vtj"
 version = "0.1.0"
 dependencies = [
  "sha2",
+]
+
+[[package]]
+name = "vtj-stress"
+version = "0.1.0"
+dependencies = [
+ "vtj",
 ]
 
 [[package]]
