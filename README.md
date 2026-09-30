@@ -16,7 +16,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/vtj-validate` | Binario `vtj-validate`: validador estructural y `--codec-aware` |
 | `crates/vmkv-parse` | Lanzador `vmkv-parse <códec>`: ejecuta `vmkv-parser-<códec>` |
 | `crates/vtj-stress` | `vtj-stress`: ejecuta un parser sobre variantes dañadas de sus entradas y comprueba el contrato |
-| `crates/parser-mp3` | `vmkv-parser-mp3`: MPEG-1/2/2.5 Layer III, con retardo y relleno de la etiqueta LAME |
+| `crates/parser-mp3` | `vmkv-parser-mp3`: MPEG-1/2/2.5 Layer III, con retardo y relleno de la etiqueta LAME. Opciones: [`docs/parsers/mp3.md`](docs/parsers/mp3.md) |
 | `crates/parser-aac` | `vmkv-parser-aac`: AAC en ADTS, sin cabecera ADTS en el payload y con AudioSpecificConfig en `codec_private` |
 | `crates/parser-opus` | `vmkv-parser-opus`: Opus en Ogg, con su propio demuxer Ogg, pre-skip, timeline negativo y recorte final |
 
@@ -111,6 +111,16 @@ Utilidades de tiempo:
 
 Los streams sin tiempos declaran `vtj::cli::FRAME_RATE` en `params()` y fallan con
 `ErrorCode::TimingRequired` si no se pasa.
+
+### Parámetros
+
+Cada parser detecta todo automáticamente, pero además declara parámetros para adaptarse a cualquier versión o variante de su códec. Hay tres tipos:
+
+- **overrides**: fuerzan un valor en lugar de detectarlo;
+- **políticas**: deciden qué hacer ante una desviación del estándar;
+- **selecciones**: eligen qué flujo o rango describir.
+
+Se declaran con `ParamSpec::int(nombre, min, max, ayuda)`, `ParamSpec::choice(nombre, &[...], ayuda)`, `ParamSpec::rational` o `ParamSpec::string`, con `.default("…")` para la ayuda. `Parser::check_params` valida las combinaciones. Solo los parámetros que se pasan quedan registrados en `header.params`.
 
 ## Tests
 

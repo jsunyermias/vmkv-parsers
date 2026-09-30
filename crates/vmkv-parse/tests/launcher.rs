@@ -4,7 +4,14 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Fake parsers, written once before any test runs them: rewriting a script
+/// while another test forks can make running it fail with ETXTBSY.
 fn fake_parsers() -> PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(write_fake_parsers).clone()
+}
+
+fn write_fake_parsers() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("vmkv-parse-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let write = |name: &str, body: &str, mode: u32| {

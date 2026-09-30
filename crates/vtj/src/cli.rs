@@ -39,24 +39,68 @@ pub const EXIT_OUTPUT_ERROR: i32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamKind {
-    Int,
+    /// An integer within `[min, max]`.
+    Int {
+        min: i64,
+        max: i64,
+    },
     /// `N/D` (or `N`, meaning `N/1`), both terms > 0.
     Rational,
     String,
+    /// One of a closed set of names, recorded as a string.
+    Choice(&'static [&'static str]),
 }
 
 /// An external parameter a parser accepts.
+///
+/// Parameters override what a parser would detect, choose a policy for
+/// deviations from the standard, or select what to describe. A parameter
+/// that is not given takes its documented default and is not recorded; a
+/// parameter that is given is recorded in `header.params` (rule 8).
 #[derive(Debug, Clone, Copy)]
 pub struct ParamSpec {
     /// snake_case name used in `header.params`; the option is `--kebab-case`.
     pub name: &'static str,
     pub kind: ParamKind,
     pub help: &'static str,
+    /// Behavior when the parameter is not given, for `--help`.
+    pub default: Option<&'static str>,
+}
+
+impl ParamSpec {
+    pub const fn int(name: &'static str, min: i64, max: i64, help: &'static str) -> Self {
+        ParamSpec { name, kind: ParamKind::Int { min, max }, help, default: None }
+    }
+
+    pub const fn rational(name: &'static str, help: &'static str) -> Self {
+        ParamSpec { name, kind: ParamKind::Rational, help, default: None }
+    }
+
+    pub const fn string(name: &'static str, help: &'static str) -> Self {
+        ParamSpec { name, kind: ParamKind::String, help, default: None }
+    }
+
+    pub const fn choice(name: &'static str, choices: &'static [&'static str], help: &'static str) -> Self {
+        ParamSpec { name, kind: ParamKind::Choice(choices), help, default: None }
+    }
+
+    pub const fn default(mut self, default: &'static str) -> Self {
+        self.default = Some(default);
+        self
+    }
+
+    fn metavar(&self) -> String {
+        match self.kind {
+            ParamKind::Int { .. } => "<N>".into(),
+            ParamKind::Rational => "<N/D>".into(),
+            ParamKind::String => "<VALUE>".into(),
+            ParamKind::Choice(c) => format!("<{}>", c.join("|")),
+        }
+    }
 }
 
 /// Frame rate for streams that carry no timing (`TIMING_REQUIRED`).
-pub const FRAME_RATE: ParamSpec =
-    ParamSpec { name: "frame_rate", kind: ParamKind::Rational, help: "frame rate as N/D, e.g. 24000/1001" };
+pub const FRAME_RATE: ParamSpec = ParamSpec::rational("frame_rate", "frame rate as N/D, e.g. 24000/1001");
 
 /// A parse failure, written as the terminal `error` line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +159,11 @@ pub trait Parser {
     fn params(&self) -> &'static [ParamSpec] {
         &[]
     }
+    /// Checks combinations of the parameters given; an `Err` is a usage
+    /// error (exit 2, nothing written).
+    fn check_params(&self, _params: &BTreeMap<String, ParamValue>) -> Result<(), String> {
+        Ok(())
+    }
     /// Minimum and maximum number of input files.
     fn inputs(&self) -> (usize, usize) {
         (1, 1)
@@ -147,6 +196,13 @@ impl Context<'_> {
     pub fn param_rational(&self, name: &str) -> Option<Rational> {
         match self.params.get(name) {
             Some(ParamValue::Rational(r)) => Some(*r),
+            _ => None,
+        }
+    }
+
+    pub fn param_str(&self, name: &str) -> Option<&str> {
+        match self.params.get(name) {
+            Some(ParamValue::String(s)) => Some(s),
             _ => None,
         }
     }
@@ -204,8 +260,18 @@ fn parse_param(spec: &ParamSpec, raw: &str) -> Result<ParamValue, String> {
         Ok(v)
     };
     match spec.kind {
-        ParamKind::Int => Ok(ParamValue::Int(int(raw)?)),
+        ParamKind::Int { min, max } => {
+            let v = int(raw)?;
+            if v < min || v > max {
+                return Err(format!("--{opt}: {v} is outside {min}..={max}"));
+            }
+            Ok(ParamValue::Int(v))
+        }
         ParamKind::String => Ok(ParamValue::String(raw.to_string())),
+        ParamKind::Choice(choices) => match choices.iter().find(|c| **c == raw) {
+            Some(c) => Ok(ParamValue::String(c.to_string())),
+            None => Err(format!("--{opt}: \"{raw}\" is not one of {}", choices.join(", "))),
+        },
         ParamKind::Rational => {
             let (n, d) = raw.split_once('/').unwrap_or((raw, "1"));
             let (n, d) = (int(n)?, int(d)?);
@@ -262,6 +328,7 @@ fn parse_args(p: &dyn Parser, args: &[String]) -> Result<Parsed, String> {
             }
         }
     }
+    p.check_params(&inv.params)?;
     let (min, max) = p.inputs();
     if inv.inputs.len() < min || inv.inputs.len() > max {
         return Err(if min == max {
@@ -281,7 +348,14 @@ fn usage(p: &dyn Parser) -> String {
         p.name()
     );
     for spec in p.params() {
-        s.push_str(&format!("  --{} <VALUE>  {}\n", kebab(spec.name), spec.help));
+        s.push_str(&format!("  --{} {}\n      {}", kebab(spec.name), spec.metavar(), spec.help));
+        if let ParamKind::Int { min, max } = spec.kind {
+            s.push_str(&format!(" [{min}..={max}]"));
+        }
+        if let Some(d) = spec.default {
+            s.push_str(&format!(" (default: {d})"));
+        }
+        s.push('\n');
     }
     s.push_str("  -h, --help           print help\n  -V, --version        print version\n");
     s

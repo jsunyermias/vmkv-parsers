@@ -15,7 +15,7 @@
 
 pub mod tags;
 
-use vtj::cli::ParseError;
+use vtj::cli::{ParamSpec, ParseError};
 use vtj::*;
 
 /// Decoder delay of the MP3 synthesis filterbank, in samples.
@@ -129,13 +129,21 @@ fn lame_crc_window(frame: &[u8], crc_at: usize) -> [u8; 190] {
     w
 }
 
+/// A LAME tag's gapless fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LameTag {
+    pub delay: u32,
+    pub padding: u32,
+    /// The tag CRC matches (see [`crc16`]).
+    pub crc_ok: bool,
+}
+
 /// What a leading Xing/Info or VBRI frame says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct InfoFrame {
     /// Audio frame count declared by a Xing/Info header.
     pub frames: Option<u32>,
-    /// `(encoder delay, encoder padding)` from a LAME tag whose CRC matches.
-    pub lame: Option<(u32, u32)>,
+    pub lame: Option<LameTag>,
 }
 
 fn be32(b: &[u8]) -> u32 {
@@ -172,13 +180,186 @@ pub fn parse_info_frame(h: &FrameHeader, frame: &[u8]) -> Option<InfoFrame> {
     }
     if let Some(lame) = frame.get(p..p + 36) {
         let stored = u16::from_be_bytes([lame[34], lame[35]]);
-        if crc16(&frame[..p + 34]) == stored || crc16(&lame_crc_window(frame, p + 34)) == stored {
-            let delay = ((lame[21] as u32) << 4) | (lame[22] as u32 >> 4);
-            let padding = (((lame[22] & 0x0f) as u32) << 8) | lame[23] as u32;
-            info.lame = Some((delay, padding));
-        }
+        let crc_ok = crc16(&frame[..p + 34]) == stored || crc16(&lame_crc_window(frame, p + 34)) == stored;
+        let delay = ((lame[21] as u32) << 4) | (lame[22] as u32 >> 4);
+        let padding = (((lame[22] & 0x0f) as u32) << 8) | lame[23] as u32;
+        info.lame = Some(LameTag { delay, padding, crc_ok });
     }
     Some(info)
+}
+
+const GAPLESS: ParamSpec = ParamSpec::choice(
+    "gapless",
+    &["auto", "off"],
+    "auto: delay and padding from a LAME tag or the overrides below; off: none at all",
+)
+.default("auto");
+const LAME_CRC: ParamSpec = ParamSpec::choice(
+    "lame_crc",
+    &["verify", "ignore"],
+    "ignore: use a LAME tag's delay and padding even if its CRC does not match",
+)
+.default("verify");
+const ENCODER_DELAY: ParamSpec =
+    ParamSpec::int("encoder_delay", 0, 65535, "encoder delay in samples, instead of the LAME tag's (0 without tag)")
+        .default("from the LAME tag");
+const ENCODER_PADDING: ParamSpec = ParamSpec::int(
+    "encoder_padding",
+    0,
+    65535,
+    "encoder padding in samples, as in the LAME tag (includes the decoder delay)",
+)
+.default("from the LAME tag");
+const DECODER_DELAY_PARAM: ParamSpec =
+    ParamSpec::int("decoder_delay", 0, 4096, "decoder delay added to the encoder delay").default("529");
+const XING_COUNT_MISMATCH: ParamSpec = ParamSpec::choice(
+    "xing_count_mismatch",
+    &["keep-delay", "use-padding", "ignore-tag"],
+    "when the Xing frame count differs from the frames found: keep the delay but drop the padding, use both, or ignore the tag",
+)
+.default("keep-delay");
+const INFO_FRAME: ParamSpec = ParamSpec::choice(
+    "info_frame",
+    &["skip", "keep"],
+    "keep: write a Xing/Info/VBRI frame as a unit (it decodes to silence) and add its duration to the delay",
+)
+.default("skip");
+const JUNK: ParamSpec = ParamSpec::choice(
+    "junk",
+    &["error", "resync"],
+    "resync: skip bytes that are not a frame up to the next frame consistent with the stream (drops those bytes)",
+)
+.default("error");
+const ZERO_PADDING: ParamSpec = ParamSpec::choice(
+    "zero_padding",
+    &["skip", "error"],
+    "zero bytes before the first frame or after the last one: skip them or fail",
+)
+.default("skip");
+const INCOMPLETE_END: ParamSpec = ParamSpec::choice(
+    "incomplete_end",
+    &["error", "drop"],
+    "a last frame cut short by the end of the audio: fail, or drop its bytes",
+)
+.default("error");
+const BYTE_RANGE: ParamSpec =
+    ParamSpec::string("byte_range", "parse exactly the bytes A:B (or A: to the end), ignoring tag detection")
+        .default("between the leading and trailing tags");
+
+const PARAMS: &[ParamSpec] = &[
+    GAPLESS,
+    LAME_CRC,
+    ENCODER_DELAY,
+    ENCODER_PADDING,
+    DECODER_DELAY_PARAM,
+    XING_COUNT_MISMATCH,
+    INFO_FRAME,
+    JUNK,
+    ZERO_PADDING,
+    INCOMPLETE_END,
+    BYTE_RANGE,
+];
+
+/// Parses `A:B` or `A:`.
+pub fn parse_byte_range(s: &str) -> Result<(u64, Option<u64>), String> {
+    let (a, b) = s.split_once(':').ok_or_else(|| format!("--byte-range: \"{s}\" is not A:B or A:"))?;
+    let a: u64 = a.parse().map_err(|_| format!("--byte-range: invalid start \"{a}\""))?;
+    let b: Option<u64> =
+        if b.is_empty() { None } else { Some(b.parse().map_err(|_| format!("--byte-range: invalid end \"{b}\""))?) };
+    if b.is_some_and(|b| b <= a) {
+        return Err(format!("--byte-range: end must be greater than start in \"{s}\""));
+    }
+    Ok((a, b))
+}
+
+/// The parameters in effect for one run.
+#[derive(Debug, Clone)]
+struct Config {
+    gapless: bool,
+    lame_crc_ignore: bool,
+    encoder_delay: Option<u32>,
+    encoder_padding: Option<u32>,
+    decoder_delay: u32,
+    xing_mismatch: String,
+    keep_info_frame: bool,
+    resync: bool,
+    skip_zeros: bool,
+    drop_incomplete_end: bool,
+    byte_range: Option<(u64, Option<u64>)>,
+}
+
+impl Config {
+    fn from(ctx: &Context<'_>) -> Result<Self, ParseError> {
+        let s = |n: &str| ctx.param_str(n).map(str::to_string);
+        let int = |n: &str| ctx.param_int(n).map(|v| v as u32);
+        Ok(Config {
+            gapless: s("gapless").as_deref() != Some("off"),
+            lame_crc_ignore: s("lame_crc").as_deref() == Some("ignore"),
+            encoder_delay: int("encoder_delay"),
+            encoder_padding: int("encoder_padding"),
+            decoder_delay: int("decoder_delay").unwrap_or(DECODER_DELAY),
+            xing_mismatch: s("xing_count_mismatch").unwrap_or_else(|| "keep-delay".into()),
+            keep_info_frame: s("info_frame").as_deref() == Some("keep"),
+            resync: s("junk").as_deref() == Some("resync"),
+            skip_zeros: s("zero_padding").as_deref() != Some("error"),
+            drop_incomplete_end: s("incomplete_end").as_deref() == Some("drop"),
+            byte_range: s("byte_range").map(|r| parse_byte_range(&r)).transpose().map_err(ParseError::invalid)?,
+        })
+    }
+}
+
+fn header_error(e: HeaderError, pos: u64) -> ParseError {
+    match e {
+        HeaderError::NoSync => ParseError::invalid(format!("no frame sync at byte {pos}")),
+        HeaderError::Reserved(what) => ParseError::invalid(format!("reserved {what} at byte {pos}")),
+        HeaderError::Layer(l) => {
+            ParseError::new(ErrorCode::UnsupportedCodecVariant, format!("MPEG audio layer {l} at byte {pos}"))
+        }
+        HeaderError::FreeFormat => ParseError::unsupported(format!("free-format bitrate at byte {pos}")),
+    }
+}
+
+fn same_stream(a: &FrameHeader, b: &FrameHeader) -> bool {
+    (a.version, a.sample_rate, a.channels) == (b.version, b.sample_rate, b.channels)
+}
+
+/// The next offset after `from` where a frame starts that is consistent
+/// with `like` (if known) and is followed by another such frame or by `end`.
+fn find_sync(
+    src: &mut vtj::source::SourceFile,
+    from: u64,
+    end: u64,
+    like: Option<&FrameHeader>,
+) -> Result<Option<u64>, ParseError> {
+    let fits = |h: &FrameHeader| like.is_none_or(|l| same_stream(l, h));
+    let header_at = |src: &mut vtj::source::SourceFile, at: u64| -> Result<Option<FrameHeader>, ParseError> {
+        if end.saturating_sub(at) < 4 {
+            return Ok(None);
+        }
+        let mut b = [0u8; 4];
+        src.read_at(at, &mut b)?;
+        Ok(parse_header(b).ok())
+    };
+    const CHUNK: u64 = 64 * 1024;
+    let mut base = from;
+    while base < end {
+        let n = CHUNK.min(end - base);
+        let mut buf = vec![0u8; n as usize];
+        src.read_at(base, &mut buf)?;
+        for (i, &b) in buf.iter().enumerate() {
+            if b != 0xff {
+                continue;
+            }
+            let at = base + i as u64;
+            let Some(h) = header_at(src, at)?.filter(|h| fits(h)) else { continue };
+            let next = at + h.length;
+            if next == end || header_at(src, next)?.is_some_and(|h2| same_stream(&h, &h2)) {
+                return Ok(Some(at));
+            }
+        }
+        base += n;
+    }
+    Ok(None)
 }
 
 pub struct Mp3;
@@ -192,37 +373,119 @@ impl Parser for Mp3 {
         env!("CARGO_PKG_VERSION")
     }
 
+    fn params(&self) -> &'static [ParamSpec] {
+        PARAMS
+    }
+
+    fn check_params(&self, p: &std::collections::BTreeMap<String, ParamValue>) -> Result<(), String> {
+        let off = matches!(p.get("gapless"), Some(ParamValue::String(v)) if v == "off");
+        if off {
+            for n in ["lame_crc", "encoder_delay", "encoder_padding", "decoder_delay", "xing_count_mismatch"] {
+                if p.contains_key(n) {
+                    return Err(format!("--gapless off conflicts with --{}", n.replace('_', "-")));
+                }
+            }
+        }
+        if let Some(ParamValue::String(r)) = p.get("byte_range") {
+            parse_byte_range(r)?;
+            if p.contains_key("zero_padding") {
+                return Err("--byte-range conflicts with --zero-padding: the range is parsed exactly".into());
+            }
+        }
+        Ok(())
+    }
+
     fn parse(&self, ctx: &mut Context<'_>) -> Result<Track, ParseError> {
-        let tagged = tags::audio_range(ctx.source(0))?;
-        let range = tags::skip_leading_zeros(ctx.source(0), tagged)?;
+        let cfg = Config::from(ctx)?;
+        let range = match cfg.byte_range {
+            Some((a, b)) => {
+                let size = ctx.source(0).size();
+                let b = b.unwrap_or(size);
+                if b > size {
+                    return Err(ParseError::truncated(format!(
+                        "--byte-range end {b} is past the end of the file ({size})"
+                    )));
+                }
+                tags::AudioRange { start: a, end: b }
+            }
+            None => {
+                let tagged = tags::audio_range(ctx.source(0))?;
+                if cfg.skip_zeros {
+                    tags::skip_leading_zeros(ctx.source(0), tagged)?
+                } else {
+                    tagged
+                }
+            }
+        };
+        let skip_trailing_zeros = cfg.skip_zeros && cfg.byte_range.is_none();
         let mut pos = range.start;
         let mut first: Option<FrameHeader> = None;
         let mut info: Option<InfoFrame> = None;
-        let mut timeline: Option<Timeline> = None;
-        let mut pending: std::collections::VecDeque<Unit> = std::collections::VecDeque::new();
+        let mut info_frame_samples: u32 = 0;
+        let mut raw_units: Vec<(u64, u64, u32)> = Vec::new();
         let mut count: u64 = 0;
 
         while pos < range.end {
             let mut lead = [0u8; 1];
             ctx.source(0).read_at(pos, &mut lead)?;
-            if lead[0] == 0 && count > 0 && tags::is_zero_padding(ctx.source(0), pos, range.end)? {
+            if lead[0] == 0 && count > 0 && skip_trailing_zeros && tags::is_zero_padding(ctx.source(0), pos, range.end)?
+            {
                 break;
             }
-            if range.end - pos < 4 {
-                return Err(ParseError::truncated(format!("frame {count} header cut at byte {}", range.end)));
-            }
-            let mut hb = [0u8; 4];
-            ctx.source(0).read_at(pos, &mut hb)?;
-
-            let h = parse_header(hb).map_err(|e| match e {
-                HeaderError::NoSync => ParseError::invalid(format!("no frame sync at byte {pos}")),
-                HeaderError::Reserved(what) => ParseError::invalid(format!("reserved {what} at byte {pos}")),
-                HeaderError::Layer(l) => {
-                    ParseError::new(ErrorCode::UnsupportedCodecVariant, format!("MPEG audio layer {l} at byte {pos}"))
+            let parsed = if range.end - pos < 4 {
+                Err(None)
+            } else {
+                let mut hb = [0u8; 4];
+                ctx.source(0).read_at(pos, &mut hb)?;
+                parse_header(hb).map_err(Some)
+            };
+            let h = match parsed {
+                Ok(h) if first.as_ref().is_none_or(|f| same_stream(f, &h)) || !cfg.resync => h,
+                other => {
+                    if let (Ok(h), Some(f)) = (&other, &first) {
+                        let next = pos + h.length;
+                        let mut nb = [0u8; 4];
+                        let followed = next == range.end
+                            || (range.end.saturating_sub(next) >= 4
+                                && ctx.source(0).read_at(next, &mut nb).is_ok()
+                                && parse_header(nb).is_ok_and(|n| same_stream(h, &n)));
+                        if followed {
+                            return Err(ParseError::new(
+                                ErrorCode::InconsistentTrackParameters,
+                                format!(
+                                    "frame {count} changes from {} Hz {} ch to {} Hz {} ch",
+                                    f.sample_rate, f.channels, h.sample_rate, h.channels
+                                ),
+                            ));
+                        }
+                    }
+                    if cfg.resync {
+                        match find_sync(ctx.source(0), pos + 1, range.end, first.as_ref())? {
+                            Some(next) => {
+                                pos = next;
+                                continue;
+                            }
+                            None if count > 0 => break,
+                            None => return Err(ParseError::invalid("no audio frames")),
+                        }
+                    }
+                    match other {
+                        Err(None) if count > 0 && cfg.drop_incomplete_end => break,
+                        Err(None) => {
+                            return Err(ParseError::truncated(format!(
+                                "frame {count} header cut at byte {}",
+                                range.end
+                            )))
+                        }
+                        Err(Some(e)) => return Err(header_error(e, pos)),
+                        Ok(h) => h,
+                    }
                 }
-                HeaderError::FreeFormat => ParseError::unsupported(format!("free-format bitrate at byte {pos}")),
-            })?;
+            };
             if h.length > range.end - pos {
+                if count > 0 && cfg.drop_incomplete_end {
+                    break;
+                }
                 return Err(ParseError::truncated(format!("frame {count} cut at byte {}", range.end)));
             }
 
@@ -231,18 +494,18 @@ impl Parser for Mp3 {
                 ctx.source(0).read_at(pos, &mut buf)?;
                 if let Some(i) = parse_info_frame(&h, &buf) {
                     info = Some(i);
+                    if cfg.keep_info_frame {
+                        info_frame_samples = h.samples;
+                        raw_units.push((pos, h.length, h.samples));
+                    }
                     pos += h.length;
                     continue;
                 }
             }
 
             match first {
-                None => {
-                    first = Some(h);
-                    let delay = info.and_then(|i| i.lame).map(|(d, _)| d + DECODER_DELAY).unwrap_or(0);
-                    timeline = Some(Timeline::new(Rational::new(h.sample_rate as i64, 1), -(delay as i128))?);
-                }
-                Some(f) if (f.version, f.sample_rate, f.channels) != (h.version, h.sample_rate, h.channels) => {
+                None => first = Some(h),
+                Some(f) if !same_stream(&f, &h) => {
                     return Err(ParseError::new(
                         ErrorCode::InconsistentTrackParameters,
                         format!(
@@ -253,13 +516,7 @@ impl Parser for Mp3 {
                 }
                 Some(_) => {}
             }
-
-            let (pts, dur) = timeline.as_mut().expect("set with the first frame").advance(h.samples as i128)?;
-            let unit = Unit::new(pts, dur, Flags::NONE.with(Flag::RandomAccess), vec![Chunk::src(0, pos, h.length)]);
-            pending.push_back(unit);
-            if pending.len() > HOLD_FRAMES {
-                ctx.emit(&pending.pop_front().expect("non-empty"))?;
-            }
+            raw_units.push((pos, h.length, h.samples));
             count += 1;
             pos += h.length;
         }
@@ -268,17 +525,37 @@ impl Parser for Mp3 {
             return Err(ParseError::invalid("no audio frames"));
         };
         let rate = Rational::new(first.sample_rate as i64, 1);
-        let lame = info.and_then(|i| i.lame);
-        let frames_match = info.and_then(|i| i.frames).is_none_or(|n| n as u64 == count);
-        if let (Some((_, padding)), true) = (lame, frames_match) {
-            let discard = padding.saturating_sub(DECODER_DELAY) as i128;
+
+        let tag = info.and_then(|i| i.lame).filter(|t| t.crc_ok || cfg.lame_crc_ignore).filter(|_| cfg.gapless);
+        let count_matches = info.and_then(|i| i.frames).is_none_or(|n| n as u64 == count);
+        let (tag_delay_ok, tag_padding_ok) = match (count_matches, cfg.xing_mismatch.as_str()) {
+            (true, _) | (false, "use-padding") => (true, true),
+            (false, "ignore-tag") => (false, false),
+            (false, _) => (true, false),
+        };
+        let delay = cfg.encoder_delay.or(tag.filter(|_| tag_delay_ok).map(|t| t.delay));
+        let padding = cfg.encoder_padding.or(tag.filter(|_| tag_padding_ok).map(|t| t.padding));
+        let gapless = cfg.gapless && (delay.is_some() || padding.is_some());
+        let codec_delay = if gapless { delay.unwrap_or(0) + cfg.decoder_delay + info_frame_samples } else { 0 };
+
+        let mut timeline = Timeline::new(rate, -(codec_delay as i128))?;
+        let mut pending: std::collections::VecDeque<Unit> = std::collections::VecDeque::new();
+        let flags = Flags::NONE.with(Flag::RandomAccess);
+        for (off, len, samples) in raw_units {
+            let (pts, dur) = timeline.advance(samples as i128)?;
+            pending.push_back(Unit::new(pts, dur, flags, vec![Chunk::src(0, off, len)]));
+            if pending.len() > HOLD_FRAMES {
+                ctx.emit(&pending.pop_front().expect("non-empty"))?;
+            }
+        }
+        if let (true, Some(padding)) = (gapless, padding) {
+            let discard = padding.saturating_sub(cfg.decoder_delay) as i128;
             if discard > 0 {
-                let end = timeline.as_ref().expect("set with the first frame").position();
-                let audible_end = ticks_to_ns(end - discard, rate)?;
+                let audible_end = ticks_to_ns(timeline.position() - discard, rate)?;
                 if !trim_end(pending.make_contiguous(), audible_end) {
                     return Err(ParseError::new(
                         ErrorCode::UnrepresentableInVmkv,
-                        format!("LAME padding of {padding} samples exceeds the stream"),
+                        format!("an encoder padding of {padding} samples exceeds the stream"),
                     ));
                 }
             }
@@ -288,8 +565,8 @@ impl Parser for Mp3 {
         }
 
         let mut track = Track::new(TrackType::Audio, "A_MPEG/L3");
-        if let Some((delay, _)) = lame {
-            track.codec_delay_ns = Some(ticks_to_ns((delay + DECODER_DELAY) as i128, rate)?);
+        if gapless {
+            track.codec_delay_ns = Some(ticks_to_ns(codec_delay as i128, rate)?);
         }
         track.audio = Some(Audio::new(rate, first.channels as u64));
         Ok(track)
