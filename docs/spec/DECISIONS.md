@@ -29,6 +29,9 @@ normativa. Esta página solo explica el porqué de cada una.
 | 19 | Si la trama Xing declara un número de frames distinto del real, se ignora el relleno LAME, pero se mantiene el retardo | El archivo fue recortado o concatenado: el relleno ya no describe su final, mientras que el inicio sigue siendo válido |
 | 20 | `vmkv-parser-mp3` solo acepta Layer III; Layer I/II fallan con `UNSUPPORTED_CODEC_VARIANT` | Son otro `codec_id` (`A_MPEG/L1`, `A_MPEG/L2`) |
 | 21 | La trama VBRI se salta sin retardo | Su campo de retardo no es fiable y FFmpeg tampoco lo usa |
+| 22 | ADTS: sin `codec_delay_ns` ni `output_sampling_frequency` | ADTS no indica el retardo del encoder ni si hay SBR implícito; no se inventan (regla 7) |
+| 23 | ADTS: solo un raw data block por frame; la configuración de canales 0 (PCE) se rechaza con `UNSUPPORTED_FEATURE` | Varios bloques sin CRC no tienen límites conocidos sin decodificar, y un PCE tendría que extraerse del payload para ir en el AudioSpecificConfig |
+| 24 | ADTS: la CRC no se verifica | Cubre bits del raw data block que solo se conocen decodificando; la sincronía y la longitud de cada frame ya detectan la corrupción de estructura |
 
 ## Convenciones de la implementación (fuera del formato)
 
