@@ -1,6 +1,8 @@
 //! MPEG-1, MPEG-2 and MPEG-2.5 Layer III elementary streams (`A_MPEG/L3`).
 //!
-//! - ID3v2, ID3v1, APEv2 and Lyrics3v2 tags are skipped.
+//! - ID3v2, ID3v1, APEv2 and Lyrics3v2 tags are skipped, and so is zero
+//!   padding before the first frame or after the last complete frame
+//!   (tagger padding). Zeros between frames are an error.
 //! - Every frame is copied as is (header included), all frames are random
 //!   access points.
 //! - A leading Xing/Info or VBRI frame is not audio and is skipped. When it
@@ -191,7 +193,8 @@ impl Parser for Mp3 {
     }
 
     fn parse(&self, ctx: &mut Context<'_>) -> Result<Track, ParseError> {
-        let range = tags::audio_range(ctx.source(0))?;
+        let tagged = tags::audio_range(ctx.source(0))?;
+        let range = tags::skip_leading_zeros(ctx.source(0), tagged)?;
         let mut pos = range.start;
         let mut first: Option<FrameHeader> = None;
         let mut info: Option<InfoFrame> = None;
@@ -200,11 +203,17 @@ impl Parser for Mp3 {
         let mut count: u64 = 0;
 
         while pos < range.end {
+            let mut lead = [0u8; 1];
+            ctx.source(0).read_at(pos, &mut lead)?;
+            if lead[0] == 0 && count > 0 && tags::is_zero_padding(ctx.source(0), pos, range.end)? {
+                break;
+            }
             if range.end - pos < 4 {
                 return Err(ParseError::truncated(format!("frame {count} header cut at byte {}", range.end)));
             }
             let mut hb = [0u8; 4];
             ctx.source(0).read_at(pos, &mut hb)?;
+
             let h = parse_header(hb).map_err(|e| match e {
                 HeaderError::NoSync => ParseError::invalid(format!("no frame sync at byte {pos}")),
                 HeaderError::Reserved(what) => ParseError::invalid(format!("reserved {what} at byte {pos}")),

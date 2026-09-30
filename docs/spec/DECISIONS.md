@@ -42,6 +42,7 @@ normativa. Esta página solo explica el porqué de cada una.
 | 33 | Opus: la página que termina OpusTags debe tener posición granular 0, igual que la de OpusHead | Lo exige RFC 7845 |
 | 34 | Los checks que usa el writer comprueban el rango ±(2^53−1) en todos los enteros (tamaños, offsets, ids, dimensiones, color, parámetros) y que los reales sean finitos | Antes solo el decodificador del validador lo comprobaba: un fallo de un parser podía escribir un archivo que el validador rechaza. El contrato vive en `check` para ambos lados |
 | 35 | Con `--output`, se rechaza una salida que sea una de las entradas (mismo archivo, también mediante enlaces duros o simbólicos) y la salida se escribe en un temporal junto al destino que se renombra al terminar | `-o foo.mp3` sobre `foo.mp3` truncaba la entrada antes de leerla; el temporal evita además dejar un `.vtj` parcial con el nombre definitivo |
+| 36 | MP3: se salta el relleno de ceros antes del primer frame y el que queda tras el último frame completo, antes de las etiquetas finales. Los ceros entre frames siguen siendo `INVALID_BITSTREAM` | 30 de 52 MP3 reales traían 931 bytes a cero fuera del tamaño declarado del ID3v2. Un frame no puede empezar por `0x00`, así que no se pierde audio (regla 7). Al final no se recortan ceros sin más: un último frame de silencio digital termina en ceros y es audio |
 
 ## Convenciones de la implementación (fuera del formato)
 
