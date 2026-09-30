@@ -16,6 +16,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/vtj-validate` | Binario `vtj-validate`: validador estructural y `--codec-aware` |
 | `crates/vmkv-parse` | Lanzador `vmkv-parse <códec>`: ejecuta `vmkv-parser-<códec>` |
 | `crates/parser-mp3` | `vmkv-parser-mp3`: MPEG-1/2/2.5 Layer III, con retardo y relleno de la etiqueta LAME |
+| `crates/parser-aac` | `vmkv-parser-aac`: AAC en ADTS, sin cabecera ADTS en el payload y con AudioSpecificConfig en `codec_private` |
 
 ## Binarios
 
@@ -109,4 +110,6 @@ Los streams sin tiempos declaran `vtj::cli::FRAME_RATE` en `params()` y fallan c
 - **`testdata/media/`:** archivos reales pequeños generados con FFmpeg (seno de 1 s).
   Las salidas de referencia de cada parser están en `testdata/golden/<códec>/`, y se
   regeneran con `UPDATE_GOLDEN=1 cargo test` tras un cambio intencionado. Los offsets y
-  tamaños de los frames se contrastaron con `ffprobe -show_packets`.
+  tamaños de los frames se contrastaron con `ffprobe -show_packets`, y además los bytes de
+  cada payload y el `codec_private` se compararon con un remux a MKV (`ffmpeg -c copy`,
+  `ffprobe -show_data`).

@@ -1,0 +1,16 @@
+[package]
+name = "vmkv-parser-aac"
+description = "VMKV parser for AAC in ADTS (.aac)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_aac"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-aac"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }

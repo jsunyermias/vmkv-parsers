@@ -89,6 +89,13 @@ name = "vmkv-parse"
 version = "0.1.0"
 
 [[package]]
+name = "vmkv-parser-aac"
+version = "0.1.0"
+dependencies = [
+ "vtj",
+]
+
+[[package]]
 name = "vmkv-parser-mp3"
 version = "0.1.0"
 dependencies = [
