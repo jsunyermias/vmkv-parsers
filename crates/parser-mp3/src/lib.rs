@@ -7,7 +7,8 @@
 //!   carries a LAME tag with a valid CRC, the encoder delay plus the decoder
 //!   delay (529 samples) becomes `codec_delay_ns` and moves the timeline
 //!   back, and the encoder padding minus 529 becomes `discard_padding_ns` of
-//!   the last frame. Without a valid LAME tag no delay is assumed.
+//!   the last frames (the padding can be longer than one frame). Without a
+//!   valid LAME tag no delay is assumed.
 //! - Free-format bitrate, other layers and parameter changes are rejected.
 
 pub mod tags;
@@ -17,6 +18,11 @@ use vtj::*;
 
 /// Decoder delay of the MP3 synthesis filterbank, in samples.
 pub const DECODER_DELAY: u32 = 529;
+
+/// Frames kept back before writing, so the end padding can be spread over
+/// them. The LAME padding field has 12 bits (at most 4095 samples), which
+/// 8 frames of 576 samples always cover.
+const HOLD_FRAMES: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Version {
@@ -190,7 +196,7 @@ impl Parser for Mp3 {
         let mut first: Option<FrameHeader> = None;
         let mut info: Option<InfoFrame> = None;
         let mut timeline: Option<Timeline> = None;
-        let mut pending: Option<(Unit, u32)> = None;
+        let mut pending: std::collections::VecDeque<Unit> = std::collections::VecDeque::new();
         let mut count: u64 = 0;
 
         while pos < range.end {
@@ -241,8 +247,9 @@ impl Parser for Mp3 {
 
             let (pts, dur) = timeline.as_mut().expect("set with the first frame").advance(h.samples as i128)?;
             let unit = Unit::new(pts, dur, Flags::NONE.with(Flag::RandomAccess), vec![Chunk::src(0, pos, h.length)]);
-            if let Some((prev, _)) = pending.replace((unit, h.samples)) {
-                ctx.emit(&prev)?;
+            pending.push_back(unit);
+            if pending.len() > HOLD_FRAMES {
+                ctx.emit(&pending.pop_front().expect("non-empty"))?;
             }
             count += 1;
             pos += h.length;
@@ -254,20 +261,21 @@ impl Parser for Mp3 {
         let rate = Rational::new(first.sample_rate as i64, 1);
         let lame = info.and_then(|i| i.lame);
         let frames_match = info.and_then(|i| i.frames).is_none_or(|n| n as u64 == count);
-        if let Some((mut last, samples)) = pending {
-            if let (Some((_, padding)), true) = (lame, frames_match) {
-                let discard = padding.saturating_sub(DECODER_DELAY);
-                if discard > samples {
+        if let (Some((_, padding)), true) = (lame, frames_match) {
+            let discard = padding.saturating_sub(DECODER_DELAY) as i128;
+            if discard > 0 {
+                let end = timeline.as_ref().expect("set with the first frame").position();
+                let audible_end = ticks_to_ns(end - discard, rate)?;
+                if !trim_end(pending.make_contiguous(), audible_end) {
                     return Err(ParseError::new(
                         ErrorCode::UnrepresentableInVmkv,
-                        format!("LAME padding of {padding} samples exceeds the last frame"),
+                        format!("LAME padding of {padding} samples exceeds the stream"),
                     ));
                 }
-                if discard > 0 {
-                    last.discard_padding_ns = Some(ticks_to_ns(discard as i128, rate)?);
-                }
             }
-            ctx.emit(&last)?;
+        }
+        for u in &pending {
+            ctx.emit(u)?;
         }
 
         let mut track = Track::new(TrackType::Audio, "A_MPEG/L3");

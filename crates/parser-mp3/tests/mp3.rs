@@ -160,6 +160,31 @@ fn frame_count_mismatch_drops_padding_but_keeps_delay() {
     assert!(out.contains(r#""codec_delay_ns":25056689"#));
 }
 
+/// Real LAME encodes often declare more padding than one frame after the
+/// 529-sample decoder delay (1684 − 529 = 1155 > 1152): the padding then
+/// spans the last two frames.
+#[test]
+fn padding_longer_than_one_frame_spans_several_units() {
+    let mut b = std::fs::read(media("mp3_cbr_lame.mp3")).unwrap();
+    let (frame, lame) = (61usize, 61 + 156);
+    let padding: u32 = 1684;
+    b[lame + 22] = (b[lame + 22] & 0xf0) | (padding >> 8) as u8;
+    b[lame + 23] = padding as u8;
+    let crc = vmkv_parser_mp3::crc16(&b[frame..lame + 34]);
+    b[lame + 34..lame + 36].copy_from_slice(&crc.to_be_bytes());
+    let (code, out) = run(&temp("pad.mp3", &b));
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(check_valid(&out), Outcome::Success);
+    let u = units(&out);
+    let last: serde_like::Unit = serde_like::parse(u[u.len() - 1]);
+    let prev: serde_like::Unit = serde_like::parse(u[u.len() - 2]);
+    assert_eq!(last.discard, Some(last.dur), "the last frame is padding entirely");
+    let rate = vtj::Rational::new(44100, 1);
+    let audible = vtj::ticks_to_ns(40 * 1152 - 1105 - 1155, rate).unwrap();
+    assert_eq!(prev.pts + prev.dur - prev.discard.unwrap(), audible, "3 samples of the previous frame");
+    assert!(serde_like::parse(u[u.len() - 3]).discard.is_none());
+}
+
 /// Just enough field extraction for these tests.
 mod serde_like {
     pub struct Unit {

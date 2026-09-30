@@ -97,14 +97,14 @@ dependencies = [
 
 [[package]]
 name = "vmkv-parser-mp3"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "vtj",
 ]
 
 [[package]]
 name = "vmkv-parser-opus"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "vtj",
 ]
