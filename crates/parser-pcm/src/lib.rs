@@ -42,7 +42,7 @@ pub struct Format {
     pub sample_rate: u32,
     pub block_align: u16,
     /// Bits per sample in its container (`block_align` / channels × 8).
-    pub container_bits: u16,
+    pub container_bits: u32,
 }
 
 impl Format {
@@ -102,7 +102,9 @@ pub fn parse_fmt(b: &[u8]) -> Result<Format, ParseError> {
     if block_align == 0 || block_align % channels != 0 {
         return Err(ParseError::invalid(format!("block align {block_align} is not a multiple of {channels} channels")));
     }
-    let container_bits = block_align / channels * 8;
+    // In u32: a block align near 65535 overflows u16 once times 8.
+    let container_bits = (block_align / channels) as u32 * 8;
+    let (bits, valid_bits) = (bits as u32, valid_bits as u32);
     if bits == 0 || bits > container_bits || valid_bits > bits {
         return Err(ParseError::invalid(format!(
             "{bits} bits per sample ({valid_bits} valid) do not fit block align {block_align} for {channels} channels"
@@ -133,8 +135,9 @@ struct Chunk4 {
 
 fn read_chunk(src: &mut vtj::source::SourceFile, pos: u64) -> Result<Option<Chunk4>, ParseError> {
     let size = src.size();
-    if size == pos {
-        return Ok(None);
+    if pos >= size {
+        // A chunk that claimed to run past the end leaves `pos` beyond it.
+        return if pos == size { Ok(None) } else { Err(ParseError::truncated(format!("chunk ends past byte {size}"))) };
     }
     if size - pos < 8 {
         return Err(ParseError::truncated(format!("chunk header at byte {pos} cut at byte {size}")));
