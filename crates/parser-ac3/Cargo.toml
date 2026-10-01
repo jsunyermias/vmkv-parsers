@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-ac3"
+description = "VMKV parser for AC-3 and E-AC-3 (.ac3, .eac3)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_ac3"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-ac3"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }

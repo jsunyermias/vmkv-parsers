@@ -97,6 +97,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vmkv-parser-ac3"
+version = "0.1.0"
+dependencies = [
+ "vtj",
+ "vtj-stress",
+]
+
+[[package]]
 name = "vmkv-parser-flac"
 version = "0.1.0"
 dependencies = [
