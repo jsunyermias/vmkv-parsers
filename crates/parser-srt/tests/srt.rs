@@ -204,3 +204,64 @@ fn overflowing_hour_field_fails_cleanly_not_panics() {
     let out = String::from_utf8(output.stdout).unwrap();
     assert!(out.ends_with("\"code\":\"INVALID_BITSTREAM\",\"message\":\"malformed timing at byte 2\"}\n"), "{out}");
 }
+
+fn run_args(args: &[&str], input: &Path) -> (i32, String) {
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let mut argv: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
+    argv.push(input.as_os_str().to_os_string());
+    let code = cli::run(&Srt, &argv, &mut out, &mut err);
+    (code, String::from_utf8(out).unwrap())
+}
+
+/// Reduced from a real track (decision 67): a cue whose text starts with two
+/// CRLF blank lines to raise it on screen, as stored in its MKV block and
+/// written out as is when extracted to `.srt`, with LF between cues.
+const RAISED: &[u8] = b"8\n00:00:54,930 --> 00:00:56,139\nLos pilotos la llaman:\n\n9\n00:04:01,158 --> 00:04:06,162\n\r\n\r\nOCEANO INDICO.\r\nEN LA ACTUALIDAD.\n\n10\n00:04:08,707 --> 00:04:10,249\n- Buenos dias.\n";
+
+#[test]
+fn blank_lines_not_followed_by_a_cue_belong_to_the_text() {
+    let (code, out) = run(&temp("raised.srt", RAISED));
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(outcome(&out), Outcome::Success);
+    let u = units(&out);
+    assert_eq!(u.len(), 3);
+    // The blank lines are kept: the payload is the MKV block's own bytes,
+    // "\r\n\r\nOCEANO INDICO.\r\nEN LA ACTUALIDAD.", one source span.
+    assert!(u[1].contains(r#""payload":[["src",0,88,37]]"#), "{}", u[1]);
+    assert!(!out.lines().next().unwrap().contains("params"), "the default is not recorded");
+}
+
+#[test]
+fn strict_mode_ends_a_cue_at_any_blank_line() {
+    let (code, out) = run_args(&["--blank-lines-in-cue", "strict"], &temp("raised-strict.srt", RAISED));
+    assert_eq!(code, cli::EXIT_PARSE_ERROR);
+    assert_eq!(outcome(&out), Outcome::Failure);
+    assert!(out.lines().next().unwrap().ends_with(r#""params":{"blank_lines_in_cue":"strict"}}"#), "{out}");
+    assert!(out.lines().last().unwrap().contains(r#""message":"expected a cue index at byte 92""#), "{out}");
+
+    // Explicit keep is recorded like any parameter passed.
+    let (code, out) = run_args(&["--blank-lines-in-cue", "keep"], &temp("raised-keep.srt", RAISED));
+    assert_eq!(code, 0, "{out}");
+    assert!(out.lines().next().unwrap().ends_with(r#""params":{"blank_lines_in_cue":"keep"}}"#), "{out}");
+}
+
+#[test]
+fn a_timing_line_without_index_after_blank_lines_is_still_an_error() {
+    // The second cue lost its index: tolerating blank lines must not merge
+    // it into the first cue's text.
+    let b = b"1\n00:00:01,000 --> 00:00:02,000\nfirst\n\n00:00:03,000 --> 00:00:04,000\nsecond\n";
+    let (code, out) = run(&temp("no-index.srt", b));
+    assert_eq!(code, cli::EXIT_PARSE_ERROR);
+    assert!(out.lines().last().unwrap().contains(r#""message":"timing line without a cue index at byte 39""#), "{out}");
+}
+
+#[test]
+fn trailing_blank_lines_and_cues_after_them_still_split_normally() {
+    let b = b"1\n00:00:01,000 --> 00:00:02,000\nfirst\n\n\n\n2\n00:00:03,000 --> 00:00:04,000\nsecond\n\n\n";
+    let (code, out) = run(&temp("trailing.srt", b));
+    assert_eq!(code, 0, "{out}");
+    let u = units(&out);
+    assert_eq!(u.len(), 2);
+    assert!(u[0].contains(r#""payload":[["src",0,32,5]]"#), "{}", u[0]);
+    assert!(u[1].contains(r#""payload":[["src",0,73,6]]"#), "{}", u[1]);
+}

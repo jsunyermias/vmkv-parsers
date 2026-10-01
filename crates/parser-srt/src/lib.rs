@@ -13,12 +13,16 @@
 //!   `FE FF`) is decoded as UTF-16; any other non-UTF-8 byte is decoded as
 //!   Windows-1252, the common fallback for legacy 8-bit `.srt` files
 //!   (decision 39).
+//! - Blank lines inside a cue are kept as part of its text when what follows
+//!   them is not a new cue (an index line and a timing line) nor the end of
+//!   the file; `--blank-lines-in-cue strict` makes every blank line end the
+//!   cue instead (decision 67).
 //! - Rejected: a cue whose index line is not a run of ASCII digits, a
 //!   timing line that is not `HH:MM:SS,mmm --> HH:MM:SS,mmm` (a decimal
 //!   point instead of a comma is not accepted: guessing the separator would
 //!   mask real corruption), and an end instant before its start.
 
-use vtj::cli::ParseError;
+use vtj::cli::{ParamSpec, ParseError};
 use vtj::*;
 
 /// Windows-1252 code points for bytes `0x80..=0x9F`; the rest of the byte
@@ -204,6 +208,26 @@ fn allocate_for_source(size: u64) -> Result<Vec<u8>, ParseError> {
     Ok(raw)
 }
 
+const BLANK_LINES_IN_CUE: ParamSpec = ParamSpec::choice(
+    "blank_lines_in_cue",
+    &["keep", "strict"],
+    "keep: blank lines not followed by a new cue (index and timing line) are part of the cue text; \
+     strict: a blank line always ends the cue",
+)
+.default("keep");
+
+/// Whether a new cue starts at `pos`: an index line followed by a timing line.
+fn cue_starts_at(buf: &[u8], pos: usize) -> bool {
+    let (end, next) = split_line(buf, pos);
+    let index = &buf[pos..end];
+    let index = std::str::from_utf8(index).map(str::trim).unwrap_or("");
+    if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) || next >= buf.len() {
+        return false;
+    }
+    let (end, _) = split_line(buf, next);
+    std::str::from_utf8(&buf[next..end]).ok().and_then(parse_cue_times).is_some()
+}
+
 pub struct Srt;
 
 impl Parser for Srt {
@@ -215,7 +239,12 @@ impl Parser for Srt {
         env!("CARGO_PKG_VERSION")
     }
 
+    fn params(&self) -> &'static [ParamSpec] {
+        &[BLANK_LINES_IN_CUE]
+    }
+
     fn parse(&self, ctx: &mut Context<'_>) -> Result<Track, ParseError> {
+        let strict = ctx.param_str("blank_lines_in_cue") == Some("strict");
         let mut raw = allocate_for_source(ctx.source(0).size())?;
         ctx.source(0).read_at(0, &mut raw)?;
         let text = decode(&raw)?;
@@ -251,13 +280,27 @@ impl Parser for Srt {
             }
             pos = next;
 
+            // The text runs to the first blank line, unless (decision 67)
+            // what follows the blank lines is neither a new cue nor the end
+            // of the file: then the blank lines belong to the text, as in
+            // cues that start with blank lines to raise the text on screen.
             let text_start = pos;
             let mut text_end = pos;
             while pos < buf.len() {
                 let (end, next) = split_line(buf, pos);
                 if is_blank(buf, pos, end) {
-                    pos = next;
-                    break;
+                    let after = skip_blank_lines(buf, next);
+                    if strict || after >= buf.len() || cue_starts_at(buf, after) {
+                        pos = next;
+                        break;
+                    }
+                    let (end, _) = split_line(buf, after);
+                    let line = std::str::from_utf8(&buf[after..end]).expect("validated UTF-8");
+                    if parse_cue_times(line).is_some() {
+                        return Err(ParseError::invalid(format!("timing line without a cue index at byte {after}")));
+                    }
+                    pos = after;
+                    continue;
                 }
                 text_end = end;
                 pos = next;

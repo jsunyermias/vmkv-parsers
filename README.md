@@ -25,7 +25,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/parser-pcm` | `vmkv-parser-pcm`: PCM entero o float en WAV, RF64 y BW64, en unidades de 40 ms. Opciones: [`docs/parsers/pcm.md`](docs/parsers/pcm.md) |
 | `crates/parser-vorbis` | `vmkv-parser-vorbis`: Vorbis en Ogg, con su propia copia del demuxer Ogg, la cabecera setup recorrida entera para conocer los modos, recorte inicial y final |
 | `crates/parser-dts` | `vmkv-parser-dts`: núcleo DTS en palabras de 16 bits big-endian; DTS-HD y las demás variantes se rechazan |
-| `crates/parser-srt` | `vmkv-parser-srt`: subtítulos SubRip, con `duration_required`, huecos entre cues y transcodificación a UTF-8 cuando la fuente no lo es |
+| `crates/parser-srt` | `vmkv-parser-srt`: subtítulos SubRip, con `duration_required`, huecos entre cues y transcodificación a UTF-8 cuando la fuente no lo es. Opciones: [`docs/parsers/srt.md`](docs/parsers/srt.md) |
 | `crates/parser-webvtt` | `vmkv-parser-webvtt`: WebVTT con el mapping de Matroska: bloques globales en `codec_private`, timestamps internos reescritos y ajustes, identificador y NOTE en la block addition 1 |
 | `crates/parser-ass` | `vmkv-parser-ass`: SSA y ASS con el mapping de Matroska: líneas no-diálogo en `codec_private`, cada diálogo como `ReadOrder,Layer,Style,…,Text` |
 | `crates/parser-pgs` | `vmkv-parser-pgs`: subtítulos PGS de Blu-ray desde `.sup`, un display set por unidad, como en los MKV reales |
