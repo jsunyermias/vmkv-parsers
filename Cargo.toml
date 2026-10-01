@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/vtj", "crates/vtj-validate", "crates/parser-mp3", "crates/parser-aac", "crates/parser-opus", "crates/parser-srt", "crates/parser-h264", "crates/parser-flac", "crates/parser-ac3", "crates/parser-pcm", "crates/vmkv-parse", "crates/vtj-stress"]
+members = ["crates/vtj", "crates/vtj-validate", "crates/parser-mp3", "crates/parser-aac", "crates/parser-opus", "crates/parser-srt", "crates/parser-h264", "crates/parser-flac", "crates/parser-ac3", "crates/parser-pcm", "crates/parser-vorbis", "crates/vmkv-parse", "crates/vtj-stress"]
 
 [workspace.package]
 edition = "2021"

@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-vorbis"
+description = "VMKV parser for Vorbis in Ogg (.ogg)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_vorbis"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-vorbis"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }

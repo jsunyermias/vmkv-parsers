@@ -33,6 +33,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 4. [x] FLAC nativo (`vmkv-parser-flac`): frames delimitados por CRC-16 y cabecera siguiente con el número esperado, bloque fijo o variable, ID3v2/ID3v1 (decisión 58). Verificado con `ffprobe` y remux a MKV en los fixtures y en música real (niveles 0, 8 y 12; 6 canales a 96 kHz).
 5. [x] AC-3 y E-AC-3 (`vmkv-parser-ac3`): syncframes con CRC, códec según `bsid` (decisión 59). Verificado con remux a MKV en los fixtures y en pistas reales AC-3 2.0/5.1 y E-AC-3 5.1. Pendiente: substreams dependientes de E-AC-3 (7.1), sin muestra real.
 6. [x] PCM en WAV/RF64/BW64 (`vmkv-parser-pcm`): `A_PCM/INT/LIT` y `A_PCM/FLOAT/IEEE`, unidades de 40 ms (decisión 60). Verificado contra el flujo PCM de un remux a MKV y contra los WAV de prueba de scipy.
+7. [x] Vorbis en Ogg (`vmkv-parser-vorbis`): duraciones por modo de bloque, granule positions comprobadas en cada página (decisión 61). Verificado con remux a MKV en los fixtures y en música real con dos codificadores.
 
 ## Fase 2. Subtítulos
 
