@@ -27,6 +27,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/parser-srt` | `vmkv-parser-srt`: subtítulos SubRip, con `duration_required`, huecos entre cues y transcodificación a UTF-8 cuando la fuente no lo es |
 | `crates/parser-webvtt` | `vmkv-parser-webvtt`: WebVTT con el mapping de Matroska: bloques globales en `codec_private`, timestamps internos reescritos y ajustes, identificador y NOTE en la block addition 1 |
 | `crates/parser-ass` | `vmkv-parser-ass`: SSA y ASS con el mapping de Matroska: líneas no-diálogo en `codec_private`, cada diálogo como `ReadOrder,Layer,Style,…,Text` |
+| `crates/parser-pgs` | `vmkv-parser-pgs`: subtítulos PGS de Blu-ray desde `.sup`, un display set por unidad, como en los MKV reales |
 | `crates/parser-h264` | `vmkv-parser-h264`: H.264 en Annex B, con su propio ensamblador de Access Units, `codec_private` AVCC y reordenado de frames B por picture order count (POC) |
 
 ## Binarios

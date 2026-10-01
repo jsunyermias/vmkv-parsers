@@ -161,6 +161,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vmkv-parser-pgs"
+version = "0.1.0"
+dependencies = [
+ "vtj",
+ "vtj-stress",
+]
+
+[[package]]
 name = "vmkv-parser-srt"
 version = "0.1.0"
 dependencies = [

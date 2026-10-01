@@ -41,6 +41,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 - [x] SRT (`vmkv-parser-srt`): `duration_required`, huecos entre unidades, transcodificación a UTF-8 como `inline` (decisión 39). Probado con `testdata/media/srt_sample.srt` (golden) y `vtj-stress` (1000+ variantes, 0 problems).
 - [x] WebVTT (`vmkv-parser-webvtt`): mapping de Matroska con block additions y timestamps internos reescritos (decisión 63). Verificado con remux a MKV en un subtítulo real de 809 cues.
 - [x] SSA/ASS (`vmkv-parser-ass`, decisión 64). Verificado con remux a MKV en 10 pistas ASS reales (6322 diálogos), payloads y `CodecPrivate` idénticos.
+- [x] PGS (`vmkv-parser-pgs`): display sets desde `.sup` (decisión 65). Verificado contra los 1104 bloques de una pista PGS de un MKV real.
 
 ## Fase 3. Vídeo
 

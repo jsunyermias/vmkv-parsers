@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-pgs"
+description = "VMKV parser for HDMV PGS subtitles (.sup)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_pgs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-pgs"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }
