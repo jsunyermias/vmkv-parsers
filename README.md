@@ -20,6 +20,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/parser-aac` | `vmkv-parser-aac`: AAC en ADTS, sin cabecera ADTS en el payload y con AudioSpecificConfig en `codec_private` |
 | `crates/parser-opus` | `vmkv-parser-opus`: Opus en Ogg, con su propio demuxer Ogg, pre-skip, timeline negativo y recorte final |
 | `crates/parser-srt` | `vmkv-parser-srt`: subtítulos SubRip, con `duration_required`, huecos entre cues y transcodificación a UTF-8 cuando la fuente no lo es |
+| `crates/parser-h264` | `vmkv-parser-h264`: H.264 en Annex B, con su propio ensamblador de Access Units, `codec_private` AVCC y reordenado de frames B por picture order count (POC) |
 
 ## Binarios
 

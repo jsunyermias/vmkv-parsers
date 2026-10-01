@@ -37,9 +37,9 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 ## Fase 3. Vídeo
 
-1. H.264 Annex B con esta cadena: scanner Annex B, NAL units, ensamblador de Access Units, estado de parameter sets, POC/timing, unit. Un frame Matroska es un Access Unit y puede llevar varios NAL. Un frame no es un NAL.
-2. Frames B: las líneas salen en orden de archivo, pero `pts` y `duration` dependen del orden de presentación (POC). Se acumulan las units en memoria y se escribe en una segunda pasada. Esta abstracción se comparte con HEVC.
-3. HEVC.
+1. [x] H.264 Annex B (`vmkv-parser-h264`): scanner Annex B, NAL units, ensamblador de Access Units (decisión 54), estado de parameter sets, POC/timing, unit. Un frame Matroska es un Access Unit y puede llevar varios NAL. Un frame no es un NAL.
+2. [x] Frames B: las líneas salen en orden de archivo, pero `pts` y `duration` dependen del orden de presentación (POC, decisión 55). Se acumulan las units en memoria y se escribe en una segunda pasada. Probado con `testdata/media/h264_sample.h264` (real, generado con `ffmpeg`/libx264 esta sesión: I + 7 P + 12 B, `pic_order_cnt_type` 0) — el orden de presentación resultante coincide exactamente con el de `ffprobe`, y `codec_private` coincide byte a byte con el `avcC` que genera `ffmpeg -c:v copy -f mp4` del mismo archivo. `vtj-stress`: 1000+ variantes, 0 problems. Fuera de alcance por ahora (decisiones 56-57): `pic_order_cnt_type` 1, entrelazado, FMO, slices redundantes, croma 4:2:2/4:4:4, más de un SPS/PPS activo por pista. Esta abstracción (reordenar por POC en una segunda pasada) se comparte con HEVC.
+3. HEVC: pendiente.
 
 ## Fase 4. Casos difíciles
 
@@ -51,6 +51,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 - No comparar el `payload` con los bytes crudos de la fuente: en H.264 y ADTS cambian.
 - Método: remuxar con `ffmpeg -c copy` a `.mkv`, hacer `ffprobe -show_packets -show_data` sobre ese MKV (ya en el mapping de Matroska) y comparar con el payload reconstruido desde el `.vtj`.
 - Comparar tiempos relativos: FFmpeg puede desplazar tiempos de inicio (`-copyts`) y trata el pre-skip de Opus a su manera. Opus se revisa a mano.
+- [x] H.264: variante del método anterior, con `ffmpeg`/`ffprobe` instalados sin `apt` (binario estático, sin red administrada por el sistema) esta sesión. En vez de un MKV, remux a `.mp4` con `-c:v copy` y comparación byte a byte de la caja `avcC` contra el `codec_private` del `.vtj` (coincide exactamente); orden de presentación (`pict_type` por `ffprobe -show_frames`) comparado contra el resultado de ordenar por POC. Ancho/alto/perfil/nivel/frame rate de `ffprobe -show_streams` contra los mismos campos de la SPS, también exactos.
 - Corpus real con archivos truncados y corruptos: deben fallar con el código de error correcto.
 - [x] `vtj-stress`: variantes truncadas y mutadas de cada entrada, con oráculo del contrato. Hay un test `robustness` por parser en CI. Se han probado 138 000 variantes de los fixtures y 46 800 de 52 MP3 reales, sin problemas. Ampliado a 65 MP3 reales más (`testdata/media`): 19 500 variantes adicionales (`--all-kinds --max-variants 300 --repeat`), 0 problems.
 
@@ -58,7 +59,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 - Sencillos: MP3, SRT, AAC/ADTS.
 - Medios: Ogg Opus (demuxer Ogg, pre-skip, `discard_padding_ns`).
-- Difíciles, con revisión contra el estándar y `ffprobe`: H.264, HEVC, multi-fuente, TrueHD, `block_additions`, HDR.
+- Difíciles, con revisión contra el estándar y `ffprobe`: H.264 (hecho), HEVC, multi-fuente, TrueHD, `block_additions`, HDR.
 - Lo que decide si sale bien es la red de pruebas (validador, tests dorados, verificación cruzada), no escribir el parser.
 
 ## Fuera de alcance por ahora

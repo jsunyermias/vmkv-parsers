@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-h264"
+description = "VMKV parser for H.264 in Annex B (.h264)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_h264"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-h264"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }
