@@ -105,9 +105,7 @@ impl Parser for Pgs {
         if set.is_some() {
             return Err(ParseError::truncated(format!("display set {count} has no END segment at byte {size}")));
         }
-        if count == 0 {
-            return Err(ParseError::invalid("no display sets"));
-        }
+        // A file with no display sets is an empty track (decision 68).
         Ok(Track::new(TrackType::Subtitle, "S_HDMV/PGS"))
     }
 }

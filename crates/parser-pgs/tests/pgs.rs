@@ -113,6 +113,9 @@ fn broken_structure() {
     let (_, out) = run(&temp("kind.sup", &k));
     assert!(error(&out).contains("unknown segment type 0x99 at byte 32"), "{out}");
 
-    let (_, out) = run(&temp("empty.sup", b""));
-    assert!(error(&out).contains(r#""message":"no display sets""#), "{out}");
+    // No display sets is an empty track (decision 68).
+    let (code, out) = run(&temp("empty.sup", b""));
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(outcome(&out), Outcome::Success);
+    assert!(out.ends_with("{\"type\":\"end\",\"unit_count\":0}\n"), "{out}");
 }

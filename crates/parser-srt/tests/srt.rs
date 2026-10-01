@@ -183,9 +183,14 @@ fn malformed_and_missing_lines() {
         "{out}"
     );
 
-    let (code, out) = run(&temp("empty.srt", b""));
-    assert_eq!(code, cli::EXIT_PARSE_ERROR);
-    assert!(out.ends_with("\"code\":\"INVALID_BITSTREAM\",\"message\":\"no subtitle cues\"}\n"), "{out}");
+    // No cues at all is an empty track (decision 68), with or without a BOM
+    // or blank lines.
+    for (name, bytes) in [("empty.srt", &b""[..]), ("blank.srt", &b"\xef\xbb\xbf\r\n\r\n"[..])] {
+        let (code, out) = run(&temp(name, bytes));
+        assert_eq!(code, 0, "{name}: {out}");
+        assert_eq!(outcome(&out), Outcome::Success);
+        assert!(out.ends_with("{\"type\":\"end\",\"unit_count\":0}\n"), "{name}: {out}");
+    }
 }
 
 /// A syntactically valid but astronomically large hour field must not panic

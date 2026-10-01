@@ -253,7 +253,6 @@ impl Parser for Srt {
         let flags = Flags::NONE.with(Flag::RandomAccess).with(Flag::DurationRequired);
 
         let mut pos = 0usize;
-        let mut count = 0u64;
         loop {
             pos = skip_blank_lines(buf, pos);
             if pos >= buf.len() {
@@ -310,12 +309,9 @@ impl Parser for Srt {
             let end_ns = ticks_to_ns(end_ms as i128, ms_rate)?;
             let payload = text.payload(text_start, text_end - text_start);
             ctx.emit(&Unit::new(pts, end_ns - pts, flags, payload))?;
-            count += 1;
         }
 
-        if count == 0 {
-            return Err(ParseError::invalid("no subtitle cues"));
-        }
+        // A file with no cues is an empty track, not an error (decision 68).
         Ok(Track::new(TrackType::Subtitle, "S_TEXT/UTF8"))
     }
 }
