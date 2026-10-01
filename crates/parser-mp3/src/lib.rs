@@ -21,11 +21,6 @@ use vtj::*;
 /// Decoder delay of the MP3 synthesis filterbank, in samples.
 pub const DECODER_DELAY: u32 = 529;
 
-/// Frames kept back before writing, so the end padding can be spread over
-/// them. The LAME padding field has 12 bits (at most 4095 samples), which
-/// 8 frames of 576 samples always cover.
-const HOLD_FRAMES: usize = 8;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Version {
     Mpeg1,
@@ -362,6 +357,27 @@ fn find_sync(
     Ok(None)
 }
 
+/// How many trailing frames of `raw_units` (offset, length, samples) hold at
+/// least `discard` samples between them, found from the end without
+/// consuming the slice. `0` for `discard <= 0`; the whole slice if even all
+/// of it falls short (the caller's `trim_end` then reports that discard
+/// exceeds the stream, exactly as it would with every frame held).
+fn hold_frames_for_discard(raw_units: &[(u64, u64, u32)], discard: i128) -> usize {
+    if discard <= 0 {
+        return 0;
+    }
+    let mut acc: i128 = 0;
+    let mut n = 0usize;
+    for &(_, _, samples) in raw_units.iter().rev() {
+        if acc >= discard {
+            break;
+        }
+        acc += samples as i128;
+        n += 1;
+    }
+    n
+}
+
 pub struct Mp3;
 
 impl Parser for Mp3 {
@@ -537,27 +553,39 @@ impl Parser for Mp3 {
         let padding = cfg.encoder_padding.or(tag.filter(|_| tag_padding_ok).map(|t| t.padding));
         let gapless = cfg.gapless && (delay.is_some() || padding.is_some());
         let codec_delay = if gapless { delay.unwrap_or(0) + cfg.decoder_delay + info_frame_samples } else { 0 };
+        // `padding` and, from it, how many samples to discard at the end.
+        let discard = if gapless {
+            padding.map(|p| (p, p.saturating_sub(cfg.decoder_delay) as i128)).filter(|&(_, d)| d > 0)
+        } else {
+            None
+        };
+
+        // How many trailing frames to hold back before writing, so the
+        // discard above can be spread over them: exactly enough of them
+        // (from the end) to cover it. `--encoder-padding` (decision 38) can
+        // ask for up to 65535 samples of discard, far more than any fixed
+        // window sized for the ≤4095 a LAME tag can carry on its own
+        // (decision 41), so a constant lookback either wastes memory on an
+        // ordinary track or falls short on a large override.
+        let hold_frames = discard.map_or(0, |(_, d)| hold_frames_for_discard(&raw_units, d));
 
         let mut timeline = Timeline::new(rate, -(codec_delay as i128))?;
-        let mut pending: std::collections::VecDeque<Unit> = std::collections::VecDeque::new();
         let flags = Flags::NONE.with(Flag::RandomAccess);
+        let mut pending: std::collections::VecDeque<Unit> = std::collections::VecDeque::with_capacity(hold_frames + 1);
         for (off, len, samples) in raw_units {
             let (pts, dur) = timeline.advance(samples as i128)?;
             pending.push_back(Unit::new(pts, dur, flags, vec![Chunk::src(0, off, len)]));
-            if pending.len() > HOLD_FRAMES {
+            if pending.len() > hold_frames {
                 ctx.emit(&pending.pop_front().expect("non-empty"))?;
             }
         }
-        if let (true, Some(padding)) = (gapless, padding) {
-            let discard = padding.saturating_sub(cfg.decoder_delay) as i128;
-            if discard > 0 {
-                let audible_end = ticks_to_ns(timeline.position() - discard, rate)?;
-                if !trim_end(pending.make_contiguous(), audible_end) {
-                    return Err(ParseError::new(
-                        ErrorCode::UnrepresentableInVmkv,
-                        format!("an encoder padding of {padding} samples exceeds the stream"),
-                    ));
-                }
+        if let Some((padding, d)) = discard {
+            let audible_end = ticks_to_ns(timeline.position() - d, rate)?;
+            if !trim_end(pending.make_contiguous(), audible_end) {
+                return Err(ParseError::new(
+                    ErrorCode::UnrepresentableInVmkv,
+                    format!("an encoder padding of {padding} samples exceeds the stream"),
+                ));
             }
         }
         for u in &pending {
@@ -576,6 +604,25 @@ impl Parser for Mp3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hold_frames_for_discard_stays_small_on_a_huge_track() {
+        // 1.5M frames of 1152 samples (a multi-hour track); 20000 samples of
+        // discard should hold back on the order of 18 trailing frames, not
+        // the whole track — the point of computing it instead of buffering
+        // everything (decision 50).
+        let raw_units: Vec<(u64, u64, u32)> = (0..1_500_000u64).map(|i| (i * 417, 417, 1152)).collect();
+        let held = hold_frames_for_discard(&raw_units, 20_000);
+        assert!((18..=19).contains(&held), "held {held} frames for 20000 samples at 1152/frame");
+
+        assert_eq!(hold_frames_for_discard(&raw_units, 0), 0, "nothing to discard, nothing held");
+        assert_eq!(hold_frames_for_discard(&raw_units, -5), 0, "a non-positive discard holds nothing");
+
+        // A discard longer than the whole track holds every frame (so the
+        // caller's trim_end can correctly report it exceeds the stream).
+        let short: Vec<(u64, u64, u32)> = (0..5u64).map(|i| (i * 417, 417, 1152)).collect();
+        assert_eq!(hold_frames_for_discard(&short, 1_000_000), 5);
+    }
 
     #[test]
     fn header_tables() {

@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-srt"
+description = "VMKV parser for SubRip subtitles (.srt)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_srt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-srt"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }

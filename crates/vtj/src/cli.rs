@@ -21,7 +21,7 @@
 //! links) is refused before anything is opened.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -235,8 +235,10 @@ impl Context<'_> {
 }
 
 struct Invocation {
-    output: Option<String>,
-    inputs: Vec<String>,
+    /// Kept as `OsString`, not `String`: a path is not necessarily valid
+    /// UTF-8 on Unix, and `File::open` must see the exact bytes given.
+    output: Option<OsString>,
+    inputs: Vec<OsString>,
     params: BTreeMap<String, ParamValue>,
 }
 
@@ -283,24 +285,38 @@ fn parse_param(spec: &ParamSpec, raw: &str) -> Result<ParamValue, String> {
     }
 }
 
-fn parse_args(p: &dyn Parser, args: &[String]) -> Result<Parsed, String> {
+/// Whether `a` should be read as an option rather than a positional input:
+/// starts with `-` and is not exactly `-` (the stdout/stdin sentinel). Only
+/// the first byte is inspected, which is sound for any `OsStr` encoding
+/// (`OsStr::as_encoded_bytes`'s ASCII bytes always round-trip).
+fn looks_like_flag(a: &OsStr) -> bool {
+    a.as_encoded_bytes().first() == Some(&b'-') && a != OsStr::new("-")
+}
+
+fn parse_args(p: &dyn Parser, args: &[OsString]) -> Result<Parsed, String> {
     let mut inv = Invocation { output: None, inputs: Vec::new(), params: BTreeMap::new() };
     let mut i = 0;
     let mut only_inputs = false;
     while i < args.len() {
         let a = &args[i];
         i += 1;
-        if only_inputs || !a.starts_with('-') || a == "-" {
+        if only_inputs || !looks_like_flag(a) {
             inv.inputs.push(a.clone());
             continue;
         }
-        let (flag, inline) = match a.split_once('=') {
-            Some((f, v)) if a.starts_with("--") => (f, Some(v.to_string())),
-            _ => (a.as_str(), None),
+        // An option name (and, with `--opt=value`, its value) must be valid
+        // UTF-8: recognized flags are themselves ASCII, so this rejects
+        // nothing a real option could be. A path given as a *separate*
+        // argument (`-o <path>`, not `--output=<path>`) never goes through
+        // this conversion and keeps its exact bytes; see `value_os` below.
+        let a_str = a.to_str().ok_or_else(|| "an option must be valid UTF-8".to_string())?;
+        let (flag, inline) = match a_str.split_once('=') {
+            Some((f, v)) if a_str.starts_with("--") => (f, Some(v.to_string())),
+            _ => (a_str, None),
         };
-        let mut value = |name: &str| -> Result<String, String> {
+        let mut value_os = |name: &str| -> Result<OsString, String> {
             if let Some(v) = inline.clone() {
-                return Ok(v);
+                return Ok(OsString::from(v));
             }
             let v = args.get(i).cloned().ok_or_else(|| format!("{name} requires a value"))?;
             i += 1;
@@ -314,14 +330,17 @@ fn parse_args(p: &dyn Parser, args: &[String]) -> Result<Parsed, String> {
                 if inv.output.is_some() {
                     return Err("--output given twice".into());
                 }
-                inv.output = Some(value(flag)?);
+                inv.output = Some(value_os(flag)?);
             }
             _ => {
                 let spec = flag
                     .strip_prefix("--")
                     .and_then(|n| p.params().iter().find(|s| kebab(s.name) == n))
                     .ok_or_else(|| format!("unknown option {flag}"))?;
-                let v = parse_param(spec, &value(flag)?)?;
+                let opt = kebab(spec.name);
+                let raw = value_os(flag)?;
+                let raw = raw.to_str().ok_or_else(|| format!("--{opt}: value must be valid UTF-8"))?;
+                let v = parse_param(spec, raw)?;
                 if inv.params.insert(spec.name.to_string(), v).is_some() {
                     return Err(format!("{flag} given twice"));
                 }
@@ -363,7 +382,7 @@ fn usage(p: &dyn Parser) -> String {
 
 /// Runs `p` with `args` (without the program name). `stdout` receives the
 /// output unless `--output` is given; diagnostics go to `stderr`.
-pub fn run(p: &dyn Parser, args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+pub fn run(p: &dyn Parser, args: &[OsString], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
     let inv = match parse_args(p, args) {
         Ok(Parsed::Run(inv)) => inv,
         Ok(Parsed::Help) => {
@@ -380,26 +399,26 @@ pub fn run(p: &dyn Parser, args: &[String], stdout: &mut dyn Write, stderr: &mut
         }
     };
 
-    let target = inv.output.as_deref().filter(|p| *p != "-").map(PathBuf::from);
+    let target = inv.output.as_deref().filter(|p| *p != OsStr::new("-")).map(PathBuf::from);
     if let Some(target) = &target {
         if let Some(input) = inv.inputs.iter().find(|i| same_file(target, Path::new(i))) {
             let _ = writeln!(
                 stderr,
-                "{}: the output {} is the input {input}; refusing to overwrite it\n\n{}",
+                "{}: the output {} is the input {}; refusing to overwrite it\n\n{}",
                 p.name(),
                 target.display(),
+                Path::new(input).display(),
                 usage(p)
             );
             return EXIT_USAGE;
         }
     }
-    let temp = target.as_deref().map(temp_path);
-    let out: Box<dyn Write + '_> = match &temp {
-        None => Box::new(BufWriter::new(stdout)),
-        Some(tmp) => match File::options().write(true).create_new(true).open(tmp) {
-            Ok(f) => Box::new(BufWriter::new(f)),
+    let (temp, out): (Option<PathBuf>, Box<dyn Write + '_>) = match &target {
+        None => (None, Box::new(BufWriter::new(stdout))),
+        Some(t) => match create_temp(t) {
+            Ok((tmp, f)) => (Some(tmp), Box::new(BufWriter::new(f))),
             Err(e) => {
-                let _ = writeln!(stderr, "{}: cannot create {}: {e}", p.name(), tmp.display());
+                let _ = writeln!(stderr, "{}: cannot create a temporary file next to {}: {e}", p.name(), t.display());
                 return EXIT_OUTPUT_ERROR;
             }
         },
@@ -455,11 +474,56 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Temporary file next to `target`, renamed over it once the output is
-/// complete, so `target` never holds a partial output.
-fn temp_path(target: &Path) -> PathBuf {
+/// How many unpredictable names `create_temp` tries before giving up.
+const TEMP_ATTEMPTS: u32 = 8;
+
+/// One candidate temporary file name next to `target` for the given
+/// `attempt` and `salt` (decision 45): not just `.<name>.<pid>.tmp`, which
+/// another local user could create ahead of time to force every run to
+/// fail, or which a reused PID could make look like a leftover from a
+/// previous, unrelated run. A pure function of its inputs, so its format is
+/// deterministically testable independent of where `salt` comes from.
+fn temp_candidate(target: &Path, attempt: u32, salt: u64) -> PathBuf {
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    target.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
+    target.with_file_name(format!(".{name}.{}.{salt:016x}.{attempt}.tmp", std::process::id()))
+}
+
+/// No RNG dependency: a `RandomState` keyed from OS randomness makes a
+/// best-effort, not a cryptographically guaranteed, unpredictable suffix
+/// (`RandomState` carries no API contract for that); collisions, accidental
+/// or deliberately guessed, are handled by simply retrying with another one
+/// (`create_temp`). See decision 45 for what this does and does not defend
+/// against.
+fn random_salt() -> u64 {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    RandomState::new().build_hasher().finish()
+}
+
+/// Creates a temporary file next to `target` with an unpredictable name,
+/// renamed over `target` once the output is complete so it never holds a
+/// partial file. Never follows an existing symlink at the chosen name
+/// (`create_new` fails instead): only a candidate nothing occupies yet is
+/// ever opened.
+fn create_temp(target: &Path) -> io::Result<(PathBuf, File)> {
+    create_temp_with(|attempt| temp_candidate(target, attempt, random_salt()))
+}
+
+/// `create_temp`'s retry loop, taking its candidate names from `candidate`
+/// instead of always drawing a fresh random one — so a test can make
+/// specific attempts collide and check the loop actually retries, which a
+/// real random salt cannot be made to do on demand.
+fn create_temp_with(mut candidate: impl FnMut(u32) -> PathBuf) -> io::Result<(PathBuf, File)> {
+    let mut last_err = None;
+    for attempt in 0..TEMP_ATTEMPTS {
+        let tmp = candidate(attempt);
+        match File::options().write(true).create_new(true).open(&tmp) {
+            Ok(f) => return Ok((tmp, f)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last_err = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| io::Error::other("could not create a temporary file")))
 }
 
 /// `Err(None)` means the output itself failed and no error line can be written.
@@ -474,7 +538,7 @@ fn execute<W: Write>(
         match SourceFile::open(i as u64, path) {
             Ok(s) => sources.push(s),
             Err(e) => {
-                let _ = writeln!(stderr, "{}: cannot read {path}: {e}", p.name());
+                let _ = writeln!(stderr, "{}: cannot read {}: {e}", p.name(), Path::new(path).display());
                 return Err(Some(ParseError::new(ErrorCode::SourceUnreadable, format!("source {i} cannot be read"))));
             }
         }
@@ -501,6 +565,15 @@ fn execute<W: Write>(
     if output_failed {
         return Err(None);
     }
+    // The header's `sha256` was computed once, before `parse`; a source that
+    // changed underneath the parser while it read from it (decision 44)
+    // would otherwise let a `.vtj` describe a different byte sequence.
+    if let Some(id) = ctx.sources().iter().position(|s| !s.verify_unchanged()) {
+        return Err(Some(ParseError::new(
+            ErrorCode::SourceUnreadable,
+            format!("source {id} changed while it was being parsed"),
+        )));
+    }
     match writer.finish(&track) {
         Ok(()) => Ok(()),
         Err(WriteError::Io(_)) => Err(None),
@@ -512,9 +585,67 @@ fn execute<W: Write>(
 
 /// Entry point for parser binaries: runs with the process arguments and exits.
 pub fn main(p: &dyn Parser) -> ! {
-    let args: Vec<String> = std::env::args_os().skip(1).map(|a: OsString| a.to_string_lossy().into_owned()).collect();
+    // Not `to_string_lossy`: that would silently rewrite a non-UTF-8 path
+    // (possible on Unix) before `File::open` ever sees it (decision 43).
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let stdout = io::stdout();
     let stderr = io::stderr();
     let code = run(p, &args, &mut stdout.lock(), &mut stderr.lock());
     std::process::exit(code)
+}
+
+#[cfg(test)]
+mod temp_name_tests {
+    use super::{create_temp_with, temp_candidate, TEMP_ATTEMPTS};
+    use std::path::{Path, PathBuf};
+
+    /// The name's format itself, as a pure function of `(target, attempt,
+    /// salt)` — no `RandomState` involved, so nothing here is probabilistic.
+    #[test]
+    fn temp_candidate_format_is_deterministic_and_not_the_old_fixed_pattern() {
+        let target = Path::new("/tmp/out.vtj");
+        let pid = std::process::id();
+        let a = temp_candidate(target, 3, 0x1122_3344_5566_7788);
+        assert_eq!(a, Path::new(&format!("/tmp/.out.vtj.{pid}.1122334455667788.3.tmp")));
+        assert_eq!(a, temp_candidate(target, 3, 0x1122_3344_5566_7788), "same inputs, same name");
+        assert_ne!(a, temp_candidate(target, 3, 0x1122_3344_5566_7789), "a different salt changes the name");
+        assert_ne!(a, temp_candidate(target, 4, 0x1122_3344_5566_7788), "a different attempt changes the name");
+        let old_style = format!(".out.vtj.{pid}.tmp");
+        assert_ne!(a.file_name().unwrap().to_str().unwrap(), old_style, "not the old predictable name");
+    }
+
+    /// The retry loop itself, with the candidate source under the test's
+    /// control instead of a real (and so uncontrollably random) salt: some
+    /// attempts are made to collide on purpose, and the loop must skip past
+    /// them, or give up cleanly after exactly `TEMP_ATTEMPTS` of them.
+    #[test]
+    fn create_temp_retries_past_existing_names_and_gives_up_after_the_limit() {
+        let dir = std::env::temp_dir().join(format!("vtj-temp-retry-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let taken: Vec<PathBuf> = (0..2).map(|i| dir.join(format!("taken-{i}.tmp"))).collect();
+        for t in &taken {
+            std::fs::write(t, b"").unwrap();
+        }
+        let free = dir.join("free.tmp");
+        let _ = std::fs::remove_file(&free);
+        let mut calls = 0;
+        let seq = taken.clone();
+        let (tmp, _file) = create_temp_with(|attempt| {
+            calls += 1;
+            seq.get(attempt as usize).cloned().unwrap_or_else(|| free.clone())
+        })
+        .unwrap();
+        assert_eq!(calls, 3, "two collisions, then a free name");
+        assert_eq!(tmp, free);
+        std::fs::remove_file(&tmp).unwrap();
+
+        let mut calls = 0;
+        let result = create_temp_with(|attempt| {
+            calls += 1;
+            taken[attempt as usize % taken.len()].clone()
+        });
+        assert!(result.is_err(), "every candidate collided");
+        assert_eq!(calls, TEMP_ATTEMPTS, "gives up after exactly the attempt limit");
+    }
 }

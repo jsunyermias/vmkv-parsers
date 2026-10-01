@@ -66,6 +66,29 @@ impl Parser for Buggy {
     }
 }
 
+/// Rewrites its own input file (with a different length, so the check does
+/// not depend on filesystem timestamp resolution) after it has been opened
+/// and hashed, but before parsing finishes — the window a concurrent writer
+/// could land in.
+struct RewritesSource;
+
+impl Parser for RewritesSource {
+    fn name(&self) -> &'static str {
+        "rewrites-source"
+    }
+    fn version(&self) -> &'static str {
+        "0"
+    }
+    fn parse(&self, ctx: &mut Context<'_>) -> Result<Track, ParseError> {
+        let size = ctx.source(0).size();
+        let path = ctx.source(0).path().to_path_buf();
+        std::fs::write(&path, vec![0u8; size as usize + 1]).unwrap();
+        let mut t = Track::new(TrackType::Video, "V_FFV1");
+        t.video = Some(Video::new(1, 1));
+        Ok(t)
+    }
+}
+
 struct Run {
     code: i32,
     out: Vec<u8>,
@@ -73,7 +96,7 @@ struct Run {
 }
 
 fn run(p: &dyn Parser, args: &[&str]) -> Run {
-    let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    let args: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let code = cli::run(p, &args, &mut out, &mut err);
     Run { code, out, err: String::from_utf8(err).unwrap() }
@@ -147,6 +170,19 @@ fn unreadable_source_gives_headerless_failure() {
     let text = String::from_utf8(r.out).unwrap();
     assert_eq!(text, "{\"type\":\"error\",\"code\":\"SOURCE_UNREADABLE\",\"message\":\"source 0 cannot be read\"}\n");
     assert!(r.err.contains("/nonexistent/vtj/input.bin"), "details go to stderr only");
+}
+
+#[test]
+fn source_modified_during_parse_is_caught() {
+    let src = input("live.bin", &[1u8; 8]);
+    let r = run(&RewritesSource, &[&src]);
+    assert_eq!(r.code, cli::EXIT_PARSE_ERROR);
+    assert_eq!(outcome(&r.out), Outcome::Failure);
+    let text = String::from_utf8(r.out).unwrap();
+    assert!(
+        text.ends_with("\"code\":\"SOURCE_UNREADABLE\",\"message\":\"source 0 changed while it was being parsed\"}\n"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -271,4 +307,44 @@ fn typed_parameters_and_cross_checks() {
     let help = String::from_utf8(run(&FixedFrames, &["--help"]).out).unwrap();
     assert!(help.contains("--mode <strict|lenient>") && help.contains("(default: strict)"), "{help}");
     assert!(help.contains("--frame-size <N>") && help.contains("[1..=1048576] (default: 4)"), "{help}");
+}
+
+/// A path with a byte that is not valid UTF-8 (legal in a Unix filename)
+/// must still be opened and written correctly: `main`'s conversion of
+/// `env::args_os()` (and, through it, `parse_args`'s handling of a
+/// positional argument or a separate-argument `-o` value) must not lose or
+/// rewrite bytes before `File::open`/`File::create_new` see them.
+#[cfg(unix)]
+#[test]
+fn non_utf8_paths_are_read_and_written_exactly() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = std::env::temp_dir().join(format!("vtj-nonutf8-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut name = b"in-\xff.bin".to_vec();
+    let src = dir.join(OsString::from_vec(std::mem::take(&mut name)));
+    std::fs::write(&src, [7u8; 8]).unwrap();
+    assert!(src.file_name().unwrap().to_str().is_none(), "the name must genuinely not be UTF-8");
+
+    let mut out_name = b"out-\xff.vtj".to_vec();
+    let out = dir.join(OsString::from_vec(std::mem::take(&mut out_name)));
+
+    let args: Vec<OsString> = vec![
+        OsString::from("--frame-rate"),
+        OsString::from("25"),
+        OsString::from("-o"),
+        out.as_os_str().to_os_string(),
+        src.as_os_str().to_os_string(),
+    ];
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let code = cli::run(&FixedFrames, &args, &mut stdout, &mut stderr);
+    assert_eq!(code, 0, "{}", String::from_utf8_lossy(&stderr));
+    assert_eq!(outcome(&std::fs::read(&out).unwrap()), Outcome::Success);
+
+    // The bytes actually read came from the file named with the 0xff byte,
+    // not from some lossily-rewritten (and likely nonexistent) sibling path:
+    // its content (all 7s) is what the header's declared size must match.
+    let written = std::fs::read(&out).unwrap();
+    assert!(String::from_utf8_lossy(&written).contains(r#""sources":[{"id":0,"size":8,"#));
 }

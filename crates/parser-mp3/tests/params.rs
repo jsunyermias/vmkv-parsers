@@ -59,8 +59,8 @@ impl Out {
 }
 
 fn run(args: &[&str], input: &Path) -> Out {
-    let mut a: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-    a.push(input.to_string_lossy().into_owned());
+    let mut a: Vec<std::ffi::OsString> = args.iter().map(std::ffi::OsString::from).collect();
+    a.push(input.as_os_str().to_os_string());
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let code = cli::run(&Mp3, &a, &mut out, &mut err);
     let text = String::from_utf8(out).unwrap();
@@ -77,6 +77,7 @@ fn ns(samples: i64, rate: i64) -> i64 {
 
 const LAME: &str = "mp3_cbr_lame.mp3";
 const PLAIN: &str = "mp3_plain.mp3";
+const MPEG2_MONO: &str = "mp3_vbr_mono_mpeg2.mp3";
 
 #[test]
 fn gapless_off_ignores_the_lame_tag() {
@@ -103,6 +104,41 @@ fn encoder_delay_and_padding_overrides() {
 
     let o = run(&["--decoder-delay", "528"], &media(LAME));
     assert_eq!(o.codec_delay(), Some(ns(576 + 528, 44100)));
+}
+
+/// `--encoder-padding` is documented up to 65535 samples, far more than the
+/// 4095 a LAME tag can carry on its own, so a large override must be able to
+/// spread its discard over as many trailing frames as it needs, not just a
+/// fixed lookback window sized for the tag case. Covers both 1152 and 576
+/// samples/frame, and confirms padding that truly exceeds the track still
+/// fails (rather than silently accepting an impossible override).
+#[test]
+fn encoder_padding_beyond_a_handful_of_frames_still_fits_the_track() {
+    // 40 frames * 1152 samples = 46080 total; 20000 samples of discard span
+    // about 17 frames.
+    let o = run(&["--encoder-padding", "20529"], &media(LAME));
+    assert_eq!(o.code, 0, "{}", o.err);
+    let trimmed = o.units().iter().filter(|u| u.contains("discard_padding_ns")).count();
+    assert!(trimmed > 8, "expected more than 8 trimmed frames, got {trimmed}");
+    assert_eq!(o.audible_end(), ns(40 * 1152 - 1105 - 20000, 44100));
+
+    // 41 frames * 576 samples = 23616 total; 15000 samples span about 26 frames.
+    let o = run(&["--encoder-padding", "15529"], &media(MPEG2_MONO));
+    assert_eq!(o.code, 0, "{}", o.err);
+    let trimmed = o.units().iter().filter(|u| u.contains("discard_padding_ns")).count();
+    assert!(trimmed > 8, "expected more than 8 trimmed frames, got {trimmed}");
+
+    // Padding that truly exceeds the whole track must still fail, not be
+    // silently accepted now that the lookback window is no longer fixed.
+    let o = run(&["--encoder-padding", "65535"], &media(LAME));
+    assert_eq!(o.code, cli::EXIT_PARSE_ERROR);
+    assert!(
+        o.text.contains(
+            r#""code":"UNREPRESENTABLE_IN_VMKV","message":"an encoder padding of 65535 samples exceeds the stream""#
+        ),
+        "{}",
+        o.text
+    );
 }
 
 fn with_broken_lame_crc() -> PathBuf {

@@ -13,14 +13,21 @@
 //!   end-of-stream page a smaller granule means end trimming, written as
 //!   `discard_padding_ns` of the last units of that page.
 
+pub mod multistream;
 pub mod ogg;
 
 use ogg::{OggReader, Packet};
 use vtj::cli::ParseError;
+use vtj::source::SourceFile;
 use vtj::*;
 
 pub const RATE: Rational = Rational::new(48000, 1);
 pub const SEEK_PREROLL_NS: i64 = 80_000_000;
+/// RFC 7845 §6: a packet over this many octets per logical stream is not
+/// interoperable and is rejected outright, before any allocation sized by
+/// it is attempted (a packet can span many pages, so its length is not
+/// otherwise bounded by any single page's own, much smaller, limit).
+pub const MAX_PACKET_BYTES: u64 = 61_440;
 /// Longest packet allowed by RFC 6716: 120 ms.
 pub const MAX_PACKET_SAMPLES: u32 = 5760;
 
@@ -32,6 +39,12 @@ pub struct OpusHead {
     pub pre_skip: u16,
     pub input_sample_rate: u32,
     pub mapping_family: u8,
+    /// Number of physical Opus streams multiplexed into each Ogg-level
+    /// packet (RFC 7845 §5.1.1). Always 1 for mapping family 0, which is a
+    /// single (mono or stereo) Opus stream, never itself "multistream".
+    pub stream_count: u8,
+    /// How many of `stream_count` decode to 2 channels (the rest, 1).
+    pub coupled_count: u8,
 }
 
 pub fn parse_head(b: &[u8]) -> Result<OpusHead, ParseError> {
@@ -41,12 +54,14 @@ pub fn parse_head(b: &[u8]) -> Result<OpusHead, ParseError> {
             "the first packet is not an OpusHead header",
         ));
     }
-    let head = OpusHead {
+    let mut head = OpusHead {
         version: b[8],
         channels: b[9],
         pre_skip: u16::from_le_bytes([b[10], b[11]]),
         input_sample_rate: u32::from_le_bytes(b[12..16].try_into().expect("4 bytes")),
         mapping_family: b[18],
+        stream_count: 1,
+        coupled_count: 0,
     };
     if head.version >> 4 != 0 {
         return Err(ParseError::new(ErrorCode::UnsupportedCodecVariant, format!("OpusHead version {}", head.version)));
@@ -58,11 +73,39 @@ pub fn parse_head(b: &[u8]) -> Result<OpusHead, ParseError> {
         0 if head.channels > 2 => {
             return Err(ParseError::invalid(format!("mapping family 0 with {} channels", head.channels)));
         }
-        0 => {}
-        _ if b.len() < 21 + head.channels as usize => {
-            return Err(ParseError::invalid("OpusHead channel mapping table is incomplete"));
+        0 => head.coupled_count = if head.channels == 2 { 1 } else { 0 },
+        _ => {
+            if b.len() < 21 + head.channels as usize {
+                return Err(ParseError::invalid("OpusHead channel mapping table is incomplete"));
+            }
+            // RFC 7845 §5.1.1: the stream and channel mapping table that
+            // follows the mapping family byte for any family but 0.
+            let (stream_count, coupled_count) = (b[19], b[20]);
+            if stream_count == 0 {
+                return Err(ParseError::invalid("OpusHead declares 0 streams"));
+            }
+            if coupled_count > stream_count {
+                return Err(ParseError::invalid(format!(
+                    "OpusHead declares {coupled_count} coupled streams, more than its {stream_count} streams"
+                )));
+            }
+            let total_streams = stream_count as u16 + coupled_count as u16;
+            if total_streams > 255 {
+                return Err(ParseError::invalid(format!(
+                    "OpusHead declares {stream_count} streams and {coupled_count} coupled ({total_streams} in total), more than 255"
+                )));
+            }
+            let total_streams = total_streams as u8;
+            for (i, &m) in b[21..21 + head.channels as usize].iter().enumerate() {
+                if m != 255 && m >= total_streams {
+                    return Err(ParseError::invalid(format!(
+                        "OpusHead channel mapping index {m} for channel {i} is neither below {total_streams} streams nor 255"
+                    )));
+                }
+            }
+            head.stream_count = stream_count;
+            head.coupled_count = coupled_count;
         }
-        _ => {}
     }
     Ok(head)
 }
@@ -94,6 +137,57 @@ pub fn packet_samples(prefix: &[u8]) -> Result<u32, String> {
     Ok(total)
 }
 
+/// Splits a multistream Ogg-level Opus packet into `stream_count` per-stream
+/// packets — the first `stream_count - 1` self-delimited (RFC 6716
+/// Appendix B), the last with normal framing consuming the rest — and
+/// returns their shared duration. RFC 7845 requires every stream to last
+/// the same number of samples; the payload itself is kept as the whole
+/// original packet (`p.chain(0)`, decision 47) — this only exists to
+/// validate the framing and compute the unit's timing, never to reference
+/// or rewrite the sub-packets' own bytes.
+fn multistream_samples(stream_count: u8, packet: &[u8]) -> Result<u32, String> {
+    let mut pos = 0usize;
+    let mut samples = None;
+    for i in 0..stream_count {
+        let self_delimited = i + 1 < stream_count;
+        let (used, s) =
+            multistream::parse_subpacket(&packet[pos..], self_delimited).map_err(|e| format!("stream {i}: {e}"))?;
+        pos += used;
+        match samples {
+            None => samples = Some(s),
+            Some(prev) if prev != s => {
+                return Err(format!("stream {i} lasts {s} samples, stream 0 lasts {prev}"));
+            }
+            Some(_) => {}
+        }
+    }
+    // In practice this cannot fire: the last stream's normal framing always
+    // consumes exactly what remains of `packet` by construction (that is
+    // the point of only self-delimiting the streams before it — Ogg's
+    // lacing, not Opus framing, delimits the packet as a whole), so a stray
+    // trailing byte is absorbed into it rather than left over. Kept as a
+    // defensive invariant in case that ever stops holding.
+    if pos != packet.len() {
+        return Err(format!("{} trailing byte(s) after {stream_count} streams", packet.len() - pos));
+    }
+    Ok(samples.expect("stream_count > 0, checked when OpusHead is parsed"))
+}
+
+/// Reads a whole packet after checking it is not absurdly large (RFC 7845
+/// §6, decision 52): a packet can span many pages, so nothing else bounds
+/// its length before this. `streams` scales the limit for a multistream
+/// group, matching decision 47's `stream_count` sub-packets.
+fn read_bounded_packet(p: &Packet, src: &mut SourceFile, streams: u8, what: &str) -> Result<Vec<u8>, ParseError> {
+    let max = MAX_PACKET_BYTES * streams as u64;
+    if p.len() > max {
+        return Err(ParseError::new(
+            ErrorCode::UnsupportedFeature,
+            format!("{what} is {} bytes, more than the {max}-byte limit for {streams} stream(s)", p.len()),
+        ));
+    }
+    p.read(src)
+}
+
 pub struct Opus;
 
 struct Pending {
@@ -116,7 +210,7 @@ impl Parser for Opus {
 
         let head_packet = next(ctx, &mut reader)?
             .ok_or_else(|| ParseError::new(ErrorCode::MissingInitializationData, "no OpusHead header"))?;
-        let head = parse_head(&head_packet.read(ctx.source(0))?)?;
+        let head = parse_head(&read_bounded_packet(&head_packet, ctx.source(0), 1, "OpusHead")?)?;
         if head_packet.page_end.is_none_or(|e| e.granule != 0) {
             return Err(ParseError::invalid("OpusHead must be alone on the first page with granule position 0"));
         }
@@ -150,7 +244,15 @@ impl Parser for Opus {
             if p.is_empty() {
                 return Err(ParseError::invalid(format!("packet {} is empty", p.index)));
             }
-            let samples = packet_samples(&p.prefix(ctx.source(0), 2)?)
+            // Every packet goes through the same RFC 6716 §3.2 framing
+            // parser, `stream_count == 1` included (decision 52): the cheap
+            // 2-byte-prefix duration-only read `packet_samples` used to
+            // take for that common case computed a duration without
+            // checking the packing rules it implies (frame parity, VBR/CBR
+            // sizes, the 1275-byte frame cap), so a malformed single-stream
+            // packet with a plausible TOC could pass unexamined.
+            let bytes = read_bounded_packet(&p, ctx.source(0), head.stream_count, "an audio packet")?;
+            let samples = multistream_samples(head.stream_count, &bytes)
                 .map_err(|e| ParseError::invalid(format!("packet {}: {e}", p.index)))?;
             let page_end = p.page_end;
             total += samples as i128;
@@ -266,5 +368,40 @@ mod tests {
         f[18] = 1;
         assert!(parse_head(&f).unwrap_err().message.contains("mapping table"));
         assert_eq!(parse_head(b"OpusTags").unwrap_err().code, ErrorCode::MissingInitializationData);
+    }
+
+    /// `family, channels, stream_count, coupled_count, mapping` -> a well-formed
+    /// OpusHead packet (RFC 7845 §5.1.1 layout).
+    fn multichannel_head(family: u8, channels: u8, stream_count: u8, coupled_count: u8, mapping: &[u8]) -> Vec<u8> {
+        let mut h = b"OpusHead".to_vec();
+        h.extend([1, channels, 0x38, 0x01, 0x80, 0xbb, 0, 0, 0, 0, family, stream_count, coupled_count]);
+        h.extend_from_slice(mapping);
+        h
+    }
+
+    #[test]
+    fn multichannel_mapping_table_rfc7845_5_1_1() {
+        // 4 channels over 2 streams, both coupled (a plausible quadraphonic layout).
+        let h = multichannel_head(1, 4, 2, 2, &[0, 1, 2, 3]);
+        let head = parse_head(&h).unwrap();
+        assert_eq!(head.channels, 4);
+
+        // A mapping index of 255 (silence) is always allowed, even with few streams.
+        let h = multichannel_head(1, 3, 1, 0, &[0, 255, 0]);
+        assert!(parse_head(&h).is_ok());
+
+        let h = multichannel_head(1, 2, 0, 0, &[0, 0]);
+        assert!(parse_head(&h).unwrap_err().message.contains("0 streams"), "{:?}", parse_head(&h));
+
+        let h = multichannel_head(1, 2, 1, 2, &[0, 0]);
+        assert!(parse_head(&h).unwrap_err().message.contains("coupled streams"), "{:?}", parse_head(&h));
+
+        let h = multichannel_head(1, 2, 200, 200, &[0, 0]);
+        assert!(parse_head(&h).unwrap_err().message.contains("more than 255"), "{:?}", parse_head(&h));
+
+        // total_streams = 2 (1 stream + 1 coupled); index 2 is out of range and not 255.
+        let h = multichannel_head(1, 2, 1, 1, &[0, 2]);
+        let err = parse_head(&h).unwrap_err();
+        assert!(err.message.contains("mapping index 2") && err.message.contains("neither below 2"), "{err:?}");
     }
 }

@@ -17,7 +17,7 @@ fn media(name: &str) -> PathBuf {
 
 fn run(input: &Path) -> (i32, String) {
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let code = cli::run(&Mp3, &[input.to_string_lossy().into_owned()], &mut out, &mut err);
+    let code = cli::run(&Mp3, &[input.as_os_str().to_os_string()], &mut out, &mut err);
     (code, String::from_utf8(out).unwrap())
 }
 

@@ -11,7 +11,7 @@
 
 use vtj::cli::ParseError;
 use vtj::source::SourceFile;
-use vtj::Chunk;
+use vtj::{Chunk, ErrorCode};
 
 const HEADER_LEN: u64 = 27;
 
@@ -51,8 +51,15 @@ impl Packet {
     }
 
     /// Reads the first `n` bytes (fewer if the packet is shorter).
+    /// `Vec::with_capacity` is not used directly: `n` ultimately comes from
+    /// a packet's own (untrusted) length, which can span arbitrarily many
+    /// pages, so an allocation failure is reported as an error instead of
+    /// aborting the process.
     pub fn prefix(&self, src: &mut SourceFile, n: usize) -> Result<Vec<u8>, ParseError> {
-        let mut out = Vec::with_capacity(n);
+        let mut out = Vec::new();
+        out.try_reserve_exact(n).map_err(|_| {
+            ParseError::new(ErrorCode::SourceUnreadable, format!("cannot allocate {n} bytes to read a packet"))
+        })?;
         for &(o, l) in &self.extents {
             if out.len() >= n {
                 break;
@@ -65,9 +72,18 @@ impl Packet {
         Ok(out)
     }
 
-    /// Reads the whole packet.
+    /// Reads the whole packet. `usize::try_from`, not `as usize`: on a
+    /// 32-bit target a packet longer than `usize::MAX` (already an absurd
+    /// size by the time anything gets here) would otherwise silently
+    /// truncate instead of failing.
     pub fn read(&self, src: &mut SourceFile) -> Result<Vec<u8>, ParseError> {
-        self.prefix(src, self.len() as usize)
+        let n = usize::try_from(self.len()).map_err(|_| {
+            ParseError::new(
+                ErrorCode::SourceUnreadable,
+                format!("packet {} is {} bytes, too large to address on this platform", self.index, self.len()),
+            )
+        })?;
+        self.prefix(src, n)
     }
 }
 
@@ -98,6 +114,9 @@ pub struct OggReader {
     partial: Vec<(u64, u64)>,
     ready: std::collections::VecDeque<Packet>,
     packets: u64,
+    /// Granule position of the last page that completed at least one
+    /// packet; a later nil end-of-stream page must repeat it.
+    last_granule: Option<i64>,
 }
 
 impl OggReader {
@@ -111,6 +130,7 @@ impl OggReader {
             partial: Vec::new(),
             ready: Default::default(),
             packets: 0,
+            last_granule: None,
         }
     }
 
@@ -122,6 +142,17 @@ impl OggReader {
                     return Err(ParseError::truncated(format!(
                         "packet {} is incomplete at the end of the file",
                         self.packets
+                    )));
+                }
+                // A logical stream that began (a BOS page was seen) must end
+                // in a page with the end-of-stream flag (RFC 3533 §4). Losing
+                // that page entirely, with the cut landing exactly on a page
+                // boundary, would otherwise leave no partial packet behind
+                // and look like a clean end of stream.
+                if self.serial.is_some() && !self.eos_seen {
+                    return Err(ParseError::truncated(format!(
+                        "stream ends at byte {} without an end-of-stream page",
+                        self.end
                     )));
                 }
                 return Ok(None);
@@ -165,8 +196,12 @@ impl OggReader {
         if avail < page_len {
             return Err(ParseError::truncated(format!("page {sequence} cut at byte {}", self.end)));
         }
-        let mut page = vec![0u8; page_len as usize];
-        src.read_at(start, &mut page)?;
+        // `h` and `lacing` are already in hand; only the body needs a fresh read.
+        let mut page = Vec::with_capacity(page_len as usize);
+        page.extend_from_slice(&h);
+        page.extend_from_slice(&lacing);
+        page.resize(page_len as usize, 0);
+        src.read_at(start + HEADER_LEN + nsegs, &mut page[(HEADER_LEN + nsegs) as usize..])?;
         page[22..26].fill(0);
         if crc32(&page) != stored_crc {
             return Err(ParseError::invalid(format!("CRC mismatch in page {sequence} at byte {start}")));
@@ -224,6 +259,19 @@ impl OggReader {
         }
         if let Some(last) = completed.last_mut() {
             last.page_end = Some(PageEnd { granule, sequence, eos });
+            self.last_granule = Some(granule);
+        } else if nsegs == 0 && eos {
+            // A nil end-of-stream page (RFC 3533 §4): no lacing entries at
+            // all, so nothing to complete, but it may still close the
+            // stream at the position the last completed packet already
+            // established. Distinct from a page whose lacing table (nsegs >
+            // 0) only continues a packet into `self.partial`: that is
+            // caught below as ending inside a packet, not accepted here.
+            if granule != -1 && Some(granule) != self.last_granule {
+                return Err(ParseError::invalid(format!(
+                    "nil end-of-stream page {sequence} has granule position {granule}, inconsistent with the last known position"
+                )));
+            }
         } else if granule != -1 {
             return Err(ParseError::invalid(format!(
                 "page {sequence} completes no packet but has granule position {granule}"
@@ -327,5 +375,51 @@ mod tests {
         let mut cont = good.clone();
         cont.extend(page(1, 5, 7, 1, &[1], b"x"));
         assert!(read_all(&cont).unwrap_err().message.contains("continuation flag"));
+    }
+
+    #[test]
+    fn nil_end_of_stream_page() {
+        let good = page(2, 0, 7, 0, &[3], b"abc");
+
+        // No lacing entries at all, `eos` set, granule matching the last
+        // completed packet's position: a valid RFC 3533 §4 nil EOS page.
+        let mut matching = good.clone();
+        matching.extend(page(4, 0, 7, 1, &[], &[]));
+        let v = read_all(&matching).unwrap();
+        assert_eq!(v.len(), 1, "the nil page completes no packet of its own");
+        assert_eq!(v[0].page_end, Some(PageEnd { granule: 0, sequence: 0, eos: false }), "unchanged by the nil page");
+
+        // granule -1 on a nil EOS page needs no prior position at all.
+        let lone_nil = page(2 | 4, -1, 7, 0, &[], &[]);
+        assert_eq!(read_all(&lone_nil).unwrap(), vec![]);
+
+        // A granule that contradicts the last completed packet's position
+        // is not a clean end of stream; it must still fail.
+        let mut mismatched = good.clone();
+        mismatched.extend(page(4, 999, 7, 1, &[], &[]));
+        assert!(
+            read_all(&mismatched).unwrap_err().message.contains("nil end-of-stream page 1 has granule position 999"),
+            "{:?}",
+            read_all(&mismatched)
+        );
+
+        // nsegs > 0 that only continues a packet is not a nil page, even if
+        // it completes nothing: it must still be rejected as ending inside
+        // a packet, not accepted as a clean nil EOS.
+        let mut mid_packet = page(2, -1, 7, 0, &[255], &[7u8; 255]);
+        mid_packet.extend(page(5, -1, 7, 1, &[255], &[7u8; 255]));
+        assert!(read_all(&mid_packet).unwrap_err().message.contains("ends inside a packet"));
+
+        // A page after a nil EOS page is still rejected, same as after any
+        // other end-of-stream page.
+        let mut after_nil = good.clone();
+        after_nil.extend(page(4, 0, 7, 1, &[], &[]));
+        after_nil.extend(page(0, 1, 7, 2, &[1], b"x"));
+        assert_eq!(read_all(&after_nil).unwrap_err().code, vtj::ErrorCode::UnsupportedFeature);
+
+        // Wrong serial on a nil EOS page is rejected like on any other page.
+        let mut wrong_serial = good.clone();
+        wrong_serial.extend(page(4, 0, 8, 1, &[], &[]));
+        assert_eq!(read_all(&wrong_serial).unwrap_err().code, vtj::ErrorCode::UnsupportedFeature);
     }
 }
