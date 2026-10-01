@@ -1,0 +1,20 @@
+[Script Info]
+; Hand-written for vmkv-parser-ass tests
+ScriptType: v4.00+
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,20,20,20,1
+Style: Sign,Arial,30,&H00FFFF00,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,8,20,20,20,1
+
+[Events]
+Format: Start, End, Layer, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Comment: 0:00:00.00,0:00:00.50,0,Default,,0,0,0,,timing note
+Dialogue: 0:00:01.00,0:00:02.50,0,Default,Ana,0,0,0,,Hola, ¿qué tal?
+Dialogue: 0:00:02.00,0:00:04.00,1,Sign,,0010,0020,0030,Scroll up;10;20;5,{\an8\pos(640,40)}CALLE MAYOR, 3
+Dialogue: 0:00:05.00,0:00:05.00,0,Default,,0,0,0,,
+
+[Fonts]
+fontname: Example_0.ttf
+!!!!

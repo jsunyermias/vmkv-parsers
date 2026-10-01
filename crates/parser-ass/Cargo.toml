@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-ass"
+description = "VMKV parser for SSA and ASS subtitles (.ssa, .ass)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_ass"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-ass"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }

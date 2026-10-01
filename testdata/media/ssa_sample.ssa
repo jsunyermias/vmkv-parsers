@@ -1,0 +1,13 @@
+[Script Info]
+; Hand-written SSA v4 script for vmkv-parser-ass tests
+ScriptType: v4.00
+PlayResY: 1024
+
+[V4 Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding
+Style: Main,Arial,56,15724527,15724527,15724527,4144959,0,0,1,1,2,2,5,5,30,0,0
+
+[Events]
+Format: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: Marked=0,0:02:40.65,0:02:41.79,Main,Ana,0000,0000,0000,,Primera línea
+Dialogue: Marked=0,0:02:42.42,0:02:44.15,Main,Luis,0000,0000,0000,,Segunda, con coma.

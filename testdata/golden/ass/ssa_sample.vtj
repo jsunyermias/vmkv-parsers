@@ -1,0 +1,5 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-ass","version":"0.1.0"},"sources":[{"id":0,"size":649,"sha256":"3efafaa676038cb991f2c41778e520b39586f36306d4fbedb1650ea599b7fda2"}]}
+{"type":"unit","pts_ns":160650000000,"duration_ns":1140000000,"flags":["random_access","duration_required"],"payload":[["inline","MCws"],["src",0,523,39]]}
+{"type":"unit","pts_ns":162420000000,"duration_ns":1730000000,"flags":["random_access","duration_required"],"payload":[["inline","MSws"],["src",0,604,44]]}
+{"type":"track","track_type":"subtitle","codec_id":"S_TEXT/SSA","codec_private":[["src",0,0,482]]}
+{"type":"end","unit_count":2}
