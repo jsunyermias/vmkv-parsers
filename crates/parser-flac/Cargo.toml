@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-flac"
+description = "VMKV parser for native FLAC (.flac)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_flac"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-flac"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }
