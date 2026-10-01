@@ -17,6 +17,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/vmkv-parse` | Lanzador `vmkv-parse <códec>`: ejecuta `vmkv-parser-<códec>` |
 | `crates/vtj-stress` | `vtj-stress`: ejecuta un parser sobre variantes dañadas de sus entradas y comprueba el contrato |
 | `crates/parser-mp3` | `vmkv-parser-mp3`: MPEG-1/2/2.5 Layer III, con retardo y relleno de la etiqueta LAME. Opciones: [`docs/parsers/mp3.md`](docs/parsers/mp3.md) |
+| `crates/parser-mp2` | `vmkv-parser-mp2`: MPEG-1/2/2.5 Layer II, con su propia copia del salto de etiquetas |
 | `crates/parser-aac` | `vmkv-parser-aac`: AAC en ADTS, sin cabecera ADTS en el payload y con AudioSpecificConfig en `codec_private` |
 | `crates/parser-opus` | `vmkv-parser-opus`: Opus en Ogg, con su propio demuxer Ogg, pre-skip, timeline negativo y recorte final |
 | `crates/parser-flac` | `vmkv-parser-flac`: FLAC nativo, con los límites de frame hallados por CRC-16 y cabecera siguiente, y todos los bloques de metadatos en `codec_private` |
