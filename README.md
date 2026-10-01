@@ -23,6 +23,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/parser-ac3` | `vmkv-parser-ac3`: AC-3 y E-AC-3 en bruto, con comprobación del CRC de cada frame. Opciones: [`docs/parsers/ac3.md`](docs/parsers/ac3.md) |
 | `crates/parser-pcm` | `vmkv-parser-pcm`: PCM entero o float en WAV, RF64 y BW64, en unidades de 40 ms. Opciones: [`docs/parsers/pcm.md`](docs/parsers/pcm.md) |
 | `crates/parser-vorbis` | `vmkv-parser-vorbis`: Vorbis en Ogg, con su propia copia del demuxer Ogg, la cabecera setup recorrida entera para conocer los modos, recorte inicial y final |
+| `crates/parser-dts` | `vmkv-parser-dts`: núcleo DTS en palabras de 16 bits big-endian; DTS-HD y las demás variantes se rechazan |
 | `crates/parser-srt` | `vmkv-parser-srt`: subtítulos SubRip, con `duration_required`, huecos entre cues y transcodificación a UTF-8 cuando la fuente no lo es |
 | `crates/parser-h264` | `vmkv-parser-h264`: H.264 en Annex B, con su propio ensamblador de Access Units, `codec_private` AVCC y reordenado de frames B por picture order count (POC) |
 

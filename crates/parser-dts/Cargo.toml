@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-dts"
+description = "VMKV parser for DTS core (.dts)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_dts"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-dts"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }
