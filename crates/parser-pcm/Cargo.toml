@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-pcm"
+description = "VMKV parser for PCM in WAV, RF64 and BW64 (.wav)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_pcm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-pcm"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }
