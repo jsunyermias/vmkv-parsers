@@ -36,6 +36,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 7. [x] Vorbis en Ogg (`vmkv-parser-vorbis`): duraciones por modo de bloque, granule positions comprobadas en cada página (decisión 61). Verificado con remux a MKV en los fixtures y en música real con dos codificadores.
 8. [x] DTS núcleo (`vmkv-parser-dts`, decisión 62). Verificado con remux a MKV en fixtures del codificador `dca` de FFmpeg. DTS-HD MA y HRA (decisión 69), verificado con cuatro pistas reales de BDremux (MA 5.1, 6.1 y 7.1; HRA 7.1). Pendiente: DTS Express y las variantes de 14 bits, sin muestra real.
 9. [x] MPEG audio Layer II (`vmkv-parser-mp2`, decisión 66). Verificado con `ffprobe` y remux a MKV. Pendiente: Layer I, sin codificador ni muestra real.
+10. [x] TrueHD (`vmkv-parser-truehd`, decisión 70). Verificado con dos pistas TrueHD 5.1 reales y fixtures del codificador de FFmpeg. Pendiente: MLP, sin muestra real.
 
 ## Fase 2. Subtítulos
 
@@ -52,6 +53,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 ## Fase 4. Casos difíciles
 
+- Multi-fuente (WavPack + `.wvc`) y varias pistas por archivo (TrueHD con núcleo AC-3 entrelazado en un `.m2ts`: una ejecución por pista). TrueHD solo, en `.thd`, ya está (decisión 70).
 - `block_additions`, `colour`/HDR, `projection`.
 
 ## Fase 5. Verificación cruzada

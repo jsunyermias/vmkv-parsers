@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-truehd"
+description = "VMKV parser for Dolby TrueHD (.thd)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_truehd"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-truehd"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }
