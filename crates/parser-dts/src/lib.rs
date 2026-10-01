@@ -1,14 +1,23 @@
-//! DTS Coherent Acoustics core (`A_DTS`, ETSI TS 102 114).
+//! DTS Coherent Acoustics (`A_DTS`, ETSI TS 102 114), with or without
+//! DTS-HD extension substreams (MA, HRA).
 //!
-//! - Only the core in its usual form, 16-bit big-endian words with sync
-//!   word `7FFE8001`: each unit is one frame of `FSIZE + 1` bytes lasting
-//!   `(NBLKS + 1) × 32` samples, and every frame is a random access point.
-//! - The 14-bit and little-endian packings (`UNSUPPORTED_CODEC_VARIANT`),
-//!   termination frames and DTS-HD extension substreams
-//!   (`UNSUPPORTED_FEATURE`) are rejected: there is no real sample of them
-//!   to verify against (decision 62).
-//! - Channels: the core's `AMODE` plus the LFE flag. Sample rate, channel
-//!   mode and LFE must not change mid-stream.
+//! - The core in its usual form, 16-bit big-endian words with sync word
+//!   `7FFE8001`: each unit is one core frame of `FSIZE + 1` bytes lasting
+//!   `(NBLKS + 1) × 32` samples, followed by the DTS-HD extension
+//!   substreams (sync `64582025`) up to the next core frame, as Matroska
+//!   blocks hold them (decision 69). Every frame is a random access point.
+//! - Without extension, channels are the core's `AMODE` plus LFE, at the
+//!   core's sample rate. With it, the first audio asset descriptor gives the
+//!   decoded sample rate and channel count (a 7.1 MA track has a 5.1
+//!   core), and times still advance by the core frame.
+//! - Rejected: the 14-bit and little-endian packings
+//!   (`UNSUPPORTED_CODEC_VARIANT`), termination frames, a stream without a
+//!   core (DTS Express) and several assets in one substream
+//!   (`UNSUPPORTED_FEATURE`): no real sample of them to verify against
+//!   (decision 62). Core layout, extension presence and the asset's sample
+//!   rate and channels must not change mid-stream.
+
+pub mod exss;
 
 use vtj::cli::ParseError;
 use vtj::*;
@@ -134,6 +143,8 @@ impl Parser for Dts {
         let mut timeline: Option<Timeline> = None;
         let mut pos = 0u64;
         let mut count = 0u64;
+        let mut has_extension: Option<bool> = None;
+        let mut asset: Option<exss::Asset> = None;
 
         while pos < size {
             if size - pos < HEADER as u64 {
@@ -147,7 +158,9 @@ impl Parser for Dts {
                 HeaderError::Packing(p) => {
                     ParseError::new(ErrorCode::UnsupportedCodecVariant, format!("{at} uses the {p} packing"))
                 }
-                HeaderError::Substream => ParseError::unsupported(format!("{at} is a DTS-HD extension substream")),
+                HeaderError::Substream => {
+                    ParseError::unsupported(format!("{at} is a DTS-HD extension substream without a core frame"))
+                }
                 HeaderError::Termination => ParseError::unsupported(format!("{at} is a termination frame")),
                 HeaderError::Blocks(n) => ParseError::invalid(format!("{at} has {} PCM sample blocks", n as u32 + 1)),
                 HeaderError::FrameSize(n) => ParseError::invalid(format!("{at} is {n} bytes")),
@@ -170,22 +183,86 @@ impl Parser for Dts {
                 }
                 Some(_) => {}
             }
+            // Extension substreams that follow the core frame.
+            let mut end = pos + h.frame_len;
+            let mut extended = false;
+            while size - end >= 4 {
+                let mut sync = [0u8; 4];
+                ctx.source(0).read_at(end, &mut sync)?;
+                if u32::from_be_bytes(sync) != SYNC_SUBSTREAM {
+                    break;
+                }
+                // The sizes end at bit 67, or 75 with wide fields.
+                if size - end < 10 {
+                    return Err(ParseError::truncated(format!("frame {count} substream header cut at byte {size}")));
+                }
+                let mut head = [0u8; 10];
+                ctx.source(0).read_at(end, &mut head)?;
+                let (header_size, ss_size) = exss::sizes(&head)
+                    .map_err(|e| ParseError::invalid(format!("frame {count} substream at byte {end}: {e}")))?;
+                if ss_size > size - end {
+                    return Err(ParseError::truncated(format!("frame {count} substream cut at byte {size}")));
+                }
+                let mut hb = vec![0u8; header_size as usize];
+                ctx.source(0).read_at(end, &mut hb)?;
+                let x = exss::parse(&hb).map_err(|e| {
+                    let code =
+                        if e.contains("assets") { ErrorCode::UnsupportedFeature } else { ErrorCode::InvalidBitstream };
+                    ParseError::new(code, format!("frame {count} substream at byte {end}: {e}"))
+                })?;
+                if let Some(a) = x.asset {
+                    match asset {
+                        None => asset = Some(a),
+                        Some(f) if (f.sample_rate, f.channels) != (a.sample_rate, a.channels) => {
+                            return Err(ParseError::new(
+                                ErrorCode::InconsistentTrackParameters,
+                                format!(
+                                    "frame {count} substream at byte {end} changes sample rate/channels from {:?} to {:?}",
+                                    (f.sample_rate, f.channels),
+                                    (a.sample_rate, a.channels)
+                                ),
+                            ));
+                        }
+                        Some(_) => {}
+                    }
+                }
+                extended = true;
+                end += ss_size;
+            }
+            match has_extension {
+                None => has_extension = Some(extended),
+                Some(e) if e != extended => {
+                    return Err(ParseError::new(
+                        ErrorCode::InconsistentTrackParameters,
+                        format!(
+                            "{at} {} DTS-HD extension, unlike the first frame",
+                            if extended { "has a" } else { "lacks the" }
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            }
+
             let (pts, dur) = timeline.as_mut().expect("set with the first frame").advance(h.samples as i128)?;
-            ctx.emit(&Unit::new(
-                pts,
-                dur,
-                Flags::NONE.with(Flag::RandomAccess),
-                vec![Chunk::src(0, pos, h.frame_len)],
-            ))?;
+            ctx.emit(&Unit::new(pts, dur, Flags::NONE.with(Flag::RandomAccess), vec![Chunk::src(0, pos, end - pos)]))?;
             count += 1;
-            pos += h.frame_len;
+            pos = end;
         }
 
         let Some(first) = first else {
             return Err(ParseError::invalid("no DTS frames"));
         };
         let mut track = Track::new(TrackType::Audio, "A_DTS");
-        track.audio = Some(Audio::new(Rational::new(first.sample_rate as i64, 1), first.channels() as u64));
+        track.audio = Some(match (has_extension, asset) {
+            (Some(true), Some(a)) => Audio::new(Rational::new(a.sample_rate as i64, 1), a.channels as u64),
+            (Some(true), None) => {
+                return Err(ParseError::new(
+                    ErrorCode::MissingInitializationData,
+                    "no DTS-HD extension substream carries an asset descriptor with static fields",
+                ))
+            }
+            _ => Audio::new(Rational::new(first.sample_rate as i64, 1), first.channels() as u64),
+        });
         Ok(track)
     }
 }

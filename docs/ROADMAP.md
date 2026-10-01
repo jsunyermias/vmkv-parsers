@@ -34,7 +34,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 5. [x] AC-3 y E-AC-3 (`vmkv-parser-ac3`): syncframes con CRC, códec según `bsid` (decisión 59). Verificado con remux a MKV en los fixtures y en pistas reales AC-3 2.0/5.1 y E-AC-3 5.1. Pendiente: substreams dependientes de E-AC-3 (7.1), sin muestra real.
 6. [x] PCM en WAV/RF64/BW64 (`vmkv-parser-pcm`): `A_PCM/INT/LIT` y `A_PCM/FLOAT/IEEE`, unidades de 40 ms (decisión 60). Verificado contra el flujo PCM de un remux a MKV y contra los WAV de prueba de scipy.
 7. [x] Vorbis en Ogg (`vmkv-parser-vorbis`): duraciones por modo de bloque, granule positions comprobadas en cada página (decisión 61). Verificado con remux a MKV en los fixtures y en música real con dos codificadores.
-8. [x] DTS núcleo (`vmkv-parser-dts`, decisión 62). Verificado con remux a MKV en fixtures del codificador `dca` de FFmpeg. Pendiente: DTS-HD (HRA, MA, Express) y las variantes de 14 bits, sin muestra real.
+8. [x] DTS núcleo (`vmkv-parser-dts`, decisión 62). Verificado con remux a MKV en fixtures del codificador `dca` de FFmpeg. DTS-HD MA y HRA (decisión 69), verificado con cuatro pistas reales de BDremux (MA 5.1, 6.1 y 7.1; HRA 7.1). Pendiente: DTS Express y las variantes de 14 bits, sin muestra real.
 9. [x] MPEG audio Layer II (`vmkv-parser-mp2`, decisión 66). Verificado con `ffprobe` y remux a MKV. Pendiente: Layer I, sin codificador ni muestra real.
 
 ## Fase 2. Subtítulos
@@ -52,7 +52,6 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 ## Fase 4. Casos difíciles
 
-- Multi-fuente (WavPack + `.wvc`) y varias pistas por archivo (TrueHD con núcleo AC-3: una ejecución por pista).
 - `block_additions`, `colour`/HDR, `projection`.
 
 ## Fase 5. Verificación cruzada
