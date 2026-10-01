@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-webvtt"
+description = "VMKV parser for WebVTT subtitles (.vtt)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_webvtt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-webvtt"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }

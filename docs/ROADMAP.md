@@ -39,6 +39,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 ## Fase 2. Subtítulos
 
 - [x] SRT (`vmkv-parser-srt`): `duration_required`, huecos entre unidades, transcodificación a UTF-8 como `inline` (decisión 39). Probado con `testdata/media/srt_sample.srt` (golden) y `vtj-stress` (1000+ variantes, 0 problems).
+- [x] WebVTT (`vmkv-parser-webvtt`): mapping de Matroska con block additions y timestamps internos reescritos (decisión 63). Verificado con remux a MKV en un subtítulo real de 809 cues.
 
 ## Fase 3. Vídeo
 

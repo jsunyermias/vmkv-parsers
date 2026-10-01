@@ -1,0 +1,7 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-webvtt","version":"0.1.0"},"sources":[{"id":0,"size":628,"sha256":"a2a8f7b3eadb5810dfd073875cebd34104c762d3f4e4f3c65a59ce04318d13fe"}]}
+{"type":"unit","pts_ns":0,"duration_ns":10000000000,"flags":["random_access","duration_required"],"payload":[["src",0,151,36]],"block_additions":[{"id":1,"data":[["inline","Cg=="],["src",0,115,5],["inline","Cg=="]]}]}
+{"type":"unit","pts_ns":25000000000,"duration_ns":10000000000,"flags":["random_access","duration_required"],"payload":[["src",0,272,60]],"block_additions":[{"id":1,"data":[["inline","Cgo="],["src",0,189,51],["inline","Cg=="]]}]}
+{"type":"unit","pts_ns":63000000000,"duration_ns":3500000000,"flags":["random_access","duration_required"],"payload":[["src",0,398,70]],"block_additions":[{"id":1,"data":[["src",0,364,33],["inline","Cgo="]]}]}
+{"type":"unit","pts_ns":190000000000,"duration_ns":10000000000,"flags":["random_access","duration_required"],"payload":[["src",0,500,59],["inline","MDA6MDA6MDUuMDAw"],["src",0,571,56]]}
+{"type":"track","track_type":"subtitle","codec_id":"S_TEXT/WEBVTT","codec_private":[["src",0,0,113]]}
+{"type":"end","unit_count":4}

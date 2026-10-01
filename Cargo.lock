@@ -169,6 +169,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vmkv-parser-webvtt"
+version = "0.1.0"
+dependencies = [
+ "vtj",
+ "vtj-stress",
+]
+
+[[package]]
 name = "vtj"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,7 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-webvtt","version":"0.1.0"},"sources":[{"id":0,"size":186,"sha256":"edc115662d2dead5ca4a2ef392b33bd3cc3eea89ba2287d0ac82986622678b40"}]}
+{"type":"unit","pts_ns":500000000,"duration_ns":1500000000,"flags":["random_access","duration_required"],"payload":[["src",0,32,8]]}
+{"type":"unit","pts_ns":2500000000,"duration_ns":2700000000,"flags":["random_access","duration_required"],"payload":[["src",0,66,26]]}
+{"type":"unit","pts_ns":6000000000,"duration_ns":0,"flags":["random_access","duration_required"],"payload":[["src",0,118,10]]}
+{"type":"unit","pts_ns":7750000000,"duration_ns":2260000000,"flags":["random_access","duration_required"],"payload":[["src",0,154,31]]}
+{"type":"track","track_type":"subtitle","codec_id":"S_TEXT/WEBVTT","codec_private":[["src",0,0,6]]}
+{"type":"end","unit_count":4}
