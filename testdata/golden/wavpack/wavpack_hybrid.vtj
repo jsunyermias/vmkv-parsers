@@ -1,0 +1,7 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-wavpack","version":"0.1.0"},"sources":[{"id":0,"size":17894,"sha256":"ab8f8db3ca52fe4b9c2f793e9931e04fab8747abfce3d287796b15811f85fab9"},{"id":1,"size":4712,"sha256":"64fd250d31d6fef69774f696fad5689d8f5ad71ea8dcaa287fb6cf34aeca3c6a"}]}
+{"type":"unit","pts_ns":0,"duration_ns":250000000,"flags":["random_access"],"payload":[["src",0,20,4520]],"block_additions":[{"id":1,"data":[["src",1,28,1146]]}]}
+{"type":"unit","pts_ns":250000000,"duration_ns":250000000,"flags":["random_access"],"payload":[["src",0,4560,4446]],"block_additions":[{"id":1,"data":[["src",1,1202,1142]]}]}
+{"type":"unit","pts_ns":500000000,"duration_ns":250000000,"flags":["random_access"],"payload":[["src",0,9026,4422]],"block_additions":[{"id":1,"data":[["src",1,2372,1172]]}]}
+{"type":"unit","pts_ns":750000000,"duration_ns":250000000,"flags":["random_access"],"payload":[["src",0,13468,4426]],"block_additions":[{"id":1,"data":[["src",1,3572,1140]]}]}
+{"type":"track","track_type":"audio","codec_id":"A_WAVPACK4","codec_private":[["inline","EAQ="]],"audio":{"sampling_frequency":[44100,1],"channels":2,"bit_depth":16},"block_addition_mappings":[{"type":1}]}
+{"type":"end","unit_count":4}

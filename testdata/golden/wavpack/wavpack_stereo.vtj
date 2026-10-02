@@ -1,0 +1,7 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-wavpack","version":"0.1.0"},"sources":[{"id":0,"size":20468,"sha256":"3756bd101cadfd14069b851adf3828f00e7fbd27c4e45dee651f2ec1369969a9"}]}
+{"type":"unit","pts_ns":0,"duration_ns":250000000,"flags":["random_access"],"payload":[["src",0,20,5176]]}
+{"type":"unit","pts_ns":250000000,"duration_ns":250000000,"flags":["random_access"],"payload":[["src",0,5216,5078]]}
+{"type":"unit","pts_ns":500000000,"duration_ns":250000000,"flags":["random_access"],"payload":[["src",0,10314,5070]]}
+{"type":"unit","pts_ns":750000000,"duration_ns":250000000,"flags":["random_access"],"payload":[["src",0,15404,5064]]}
+{"type":"track","track_type":"audio","codec_id":"A_WAVPACK4","codec_private":[["inline","EAQ="]],"audio":{"sampling_frequency":[44100,1],"channels":2,"bit_depth":16}}
+{"type":"end","unit_count":4}

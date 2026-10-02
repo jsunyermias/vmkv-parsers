@@ -18,6 +18,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/vtj-stress` | `vtj-stress`: ejecuta un parser sobre variantes dañadas de sus entradas y comprueba el contrato |
 | `crates/parser-mp3` | `vmkv-parser-mp3`: MPEG-1/2/2.5 Layer III, con retardo y relleno de la etiqueta LAME. Opciones: [`docs/parsers/mp3.md`](docs/parsers/mp3.md) |
 | `crates/parser-truehd` | `vmkv-parser-truehd`: Dolby TrueHD, un access unit por unidad, con los major syncs como puntos de acceso y comprobación de paridad |
+| `crates/parser-wavpack` | `vmkv-parser-wavpack`: WavPack 4/5 con el mapping de Matroska, y su archivo de corrección `.wvc` como segunda fuente (block addition 1) |
 | `crates/parser-mp2` | `vmkv-parser-mp2`: MPEG-1/2/2.5 Layer II, con su propia copia del salto de etiquetas |
 | `crates/parser-aac` | `vmkv-parser-aac`: AAC en ADTS, sin cabecera ADTS en el payload y con AudioSpecificConfig en `codec_private` |
 | `crates/parser-opus` | `vmkv-parser-opus`: Opus en Ogg, con su propio demuxer Ogg, pre-skip, timeline negativo y recorte final |

@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-wavpack"
+description = "VMKV parser for WavPack, with an optional .wvc correction file (.wv, .wvc)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_wavpack"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-wavpack"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }
