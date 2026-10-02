@@ -58,7 +58,8 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 - Varias pistas por archivo (TrueHD con núcleo AC-3 entrelazado en un `.m2ts`: una ejecución por pista). TrueHD solo, en `.thd`, ya está (decisión 70).
 - [x] `colour` y HDR10 en H.264 y HEVC (decisión 75): VUI y SEI de mastering display y light level, verificado con `ffprobe` en dos pistas HEVC 4K reales.
-- `block_additions` (Dolby Vision) y `projection`.
+- [x] Dolby Vision de una capa en HEVC (decisión 76): RPU en las unidades y mapping `dvcC`/`dvvC`/`dvwC` con el registro de `--dovi-config`. Verificado con una pista real DV 8.1. Pendiente: doble capa.
+- `projection`.
 
 ## Fase 5. Verificación cruzada
 

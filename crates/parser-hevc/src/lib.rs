@@ -35,6 +35,58 @@ use vtj::cli::{ParseError, FRAME_RATE};
 use vtj::source::SourceFile;
 use vtj::*;
 
+/// Dolby Vision RPU and enhancement layer NAL unit types (unspecified in
+/// H.265, assigned by Dolby).
+const DOVI_RPU: u8 = 62;
+const DOVI_EL: u8 = 63;
+
+const DOVI_CONFIG: vtj::cli::ParamSpec = vtj::cli::ParamSpec::string(
+    "dovi_config",
+    "Dolby Vision DOVIDecoderConfigurationRecord as 48 hex digits, from the source container (not in the stream)",
+);
+
+/// A `DOVIDecoderConfigurationRecord` given by the caller (decision 76).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DoviConfig {
+    pub record: [u8; 24],
+    pub profile: u8,
+}
+
+impl DoviConfig {
+    pub fn parse(hex: &str) -> Result<Self, String> {
+        if hex.len() != 48 || !hex.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err("--dovi-config must be the 24-byte record as 48 hex digits".into());
+        }
+        let mut record = [0u8; 24];
+        for (i, b) in record.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex digits");
+        }
+        if record[0] != 1 {
+            return Err(format!("--dovi-config: dv_version_major {} is not 1", record[0]));
+        }
+        let bits = u16::from_be_bytes([record[2], record[3]]);
+        let profile = (bits >> 9) as u8;
+        let (rpu, el, bl) = (bits >> 2 & 1, bits >> 1 & 1, bits & 1);
+        if rpu != 1 || el != 0 || bl != 1 {
+            return Err("--dovi-config must describe a single-layer stream with RPU (rpu 1, el 0, bl 1)".into());
+        }
+        if profile > 20 {
+            return Err(format!("--dovi-config: dv_profile {profile} is unknown"));
+        }
+        Ok(DoviConfig { record, profile })
+    }
+
+    /// The Matroska block addition type for the profile: `dvcC`, `dvvC` or
+    /// `dvwC`.
+    pub fn block_type(&self) -> u32 {
+        match self.profile {
+            0..=7 => u32::from_be_bytes(*b"dvcC"),
+            8..=10 | 20 => u32::from_be_bytes(*b"dvvC"),
+            _ => u32::from_be_bytes(*b"dvwC"),
+        }
+    }
+}
+
 /// Bytes of a slice segment read to parse its header up to the POC.
 const SLICE_HEADER_BYTES: u64 = 1024;
 /// Prefix SEI NAL units up to this size are read for HDR metadata.
@@ -149,7 +201,14 @@ impl Parser for Hevc {
     }
 
     fn params(&self) -> &'static [vtj::cli::ParamSpec] {
-        &[FRAME_RATE]
+        &[DOVI_CONFIG, FRAME_RATE]
+    }
+
+    fn check_params(&self, params: &BTreeMap<String, ParamValue>) -> Result<(), String> {
+        match params.get("dovi_config") {
+            Some(ParamValue::String(hex)) => DoviConfig::parse(hex).map(|_| ()),
+            _ => Ok(()),
+        }
     }
 
     fn parse(&self, ctx: &mut Context<'_>) -> Result<Track, ParseError> {
@@ -161,6 +220,8 @@ impl Parser for Hevc {
         let mut pps_by_id: BTreeMap<u32, Pps> = BTreeMap::new();
         let mut builder = AuBuilder::new();
         let mut hdr = colour::Hdr::default();
+        let dovi = ctx.param_str("dovi_config").map(|h| DoviConfig::parse(h).expect("checked by check_params"));
+        let mut rpu_seen = false;
         let mut active_pps: Option<Vec<u8>> = None;
         let mut pps_in_band = false;
         let mut aus: Vec<AccessUnit> = Vec::new();
@@ -278,6 +339,32 @@ impl Parser for Hevc {
                         .map_err(|e| map_err(format!("NAL unit at byte {at}: {e}")))?;
                     None
                 }
+                DOVI_RPU => {
+                    if dovi.is_none() {
+                        return Err(ParseError::new(
+                            ErrorCode::MissingInitializationData,
+                            format!("Dolby Vision RPU at byte {at}; its configuration is not in the stream, pass --dovi-config"),
+                        ));
+                    }
+                    if nal.length > u32::MAX as u64 {
+                        return Err(ParseError::new(
+                            ErrorCode::UnrepresentableInVmkv,
+                            format!("RPU at byte {at} is too long for a 4-byte NAL length"),
+                        ));
+                    }
+                    // The RPU closes its picture's access unit and stays in
+                    // the frame (decision 76).
+                    builder
+                        .feed_suffix((nal.offset, nal.length))
+                        .map_err(|e| map_err(format!("Dolby Vision RPU at byte {at}: {e}")))?;
+                    rpu_seen = true;
+                    None
+                }
+                DOVI_EL => {
+                    return Err(ParseError::unsupported(format!(
+                        "Dolby Vision enhancement layer NAL unit at byte {at}: dual-layer streams are not supported"
+                    )));
+                }
                 other => {
                     return Err(ParseError::unsupported(format!(
                         "NAL unit type {other} at byte {at} is not supported"
@@ -358,6 +445,17 @@ impl Parser for Hevc {
                 (access_unit::PPS, &pps_bytes, pps_at, !pps_in_band),
             ],
         )?);
+        if let Some(config) = &dovi {
+            if !rpu_seen {
+                return Err(ParseError::invalid("--dovi-config was given but the stream carries no Dolby Vision RPU"));
+            }
+            track.block_addition_mappings.push(BlockAdditionMapping {
+                id_value: None,
+                name: None,
+                kind: config.block_type() as u64,
+                extra_data: Some(vec![Chunk::inline(config.record.to_vec())]),
+            });
+        }
         let mut video = Video::new(sps.width, sps.height);
         video.colour =
             Some(colour::colour(sps.chroma_format_idc, sps.bit_depth_luma_minus8, sps.signal, sps.chroma_loc, &hdr));

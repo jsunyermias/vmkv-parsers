@@ -134,12 +134,13 @@ fn rejected_streams() {
     let (_, out) = run(&[], &temp("layer.hevc", &l));
     assert!(error(&out).contains(r#""code":"UNSUPPORTED_FEATURE""#) && error(&out).contains("in layer 32"), "{out}");
 
-    // Dolby Vision RPU (type 62) after the first picture.
+    // Dolby Vision RPU (type 62) after the first picture, without its
+    // configuration.
     let mut dv = d.clone();
     let at = vcl[1].0 - 4;
     dv.splice(at..at, [0, 0, 0, 1, 62 << 1, 1, 0x10]);
     let (_, out) = run(&[], &temp("dv.hevc", &dv));
-    assert!(error(&out).contains("NAL unit type 62 at byte"), "{out}");
+    assert!(error(&out).contains("Dolby Vision RPU at byte") && error(&out).contains("pass --dovi-config"), "{out}");
 
     // forbidden_zero_bit.
     let mut f = d.clone();
@@ -204,4 +205,66 @@ fn a_changed_pps_stays_in_band() {
     // The PPS array of hvcC is no longer complete (0x22, not 0xa2).
     let track = out.lines().find(|l| l.contains(r#""type":"track""#)).unwrap();
     assert!(track.contains(r#"["inline","IgABAAc="]"#), "{track}");
+}
+
+/// The fixture with a small Dolby Vision RPU (NAL type 62) after the last
+/// slice of every picture, as Dolby Vision profile 8 streams carry them.
+fn with_rpu(nal_type: u8) -> Vec<u8> {
+    let d = std::fs::read(media("hevc_open_gop.hevc")).unwrap();
+    let all = nals(&d);
+    let mut out = Vec::new();
+    let mut prev = 0;
+    for (k, &(s, len)) in all.iter().enumerate() {
+        let vcl = (d[s] >> 1) & 0x3f < 32;
+        let next_starts_picture = all.get(k + 1).is_none_or(|&(n, _)| (d[n] >> 1) & 0x3f >= 32 || d[n + 2] & 0x80 != 0);
+        out.extend(&d[prev..s + len]);
+        prev = s + len;
+        if vcl && next_starts_picture {
+            out.extend([0, 0, 0, 1, nal_type << 1, 1, 0x19, 0x08, 0x09, 0x80]);
+        }
+    }
+    out.extend(&d[prev..]);
+    out
+}
+
+const DOVI_8_1: &str = "010010351000000000000000000000000000000000000000";
+
+#[test]
+fn dolby_vision_rpu_with_its_configuration() {
+    let f = temp("dv.hevc", &with_rpu(62));
+    let (code, out) = run(&[], &f);
+    assert_eq!(code, cli::EXIT_PARSE_ERROR);
+    assert!(
+        error(&out).contains(r#""code":"MISSING_INITIALIZATION_DATA","message":"Dolby Vision RPU at byte"#),
+        "{out}"
+    );
+
+    let (code, out) = run(&["--dovi-config", DOVI_8_1], &f);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(outcome(&out), Outcome::Success);
+    assert!(out.lines().next().unwrap().contains(&format!(r#""params":{{"dovi_config":"{DOVI_8_1}"}}"#)), "{out}");
+    // Profile 8: dvvC (0x64767643), the record as extra data.
+    assert!(
+        out.contains(r#""block_addition_mappings":[{"type":1685485123,"extra_data":[["inline","AQAQNRAAAAAAAAAAAAAAAAAAAAAAAAAA"]]}]"#),
+        "{out}"
+    );
+    // Every picture keeps its RPU, last in the frame.
+    let u = units(&out);
+    assert_eq!(u.len(), 36);
+    assert!(u.iter().all(|l| l.contains(r#"["inline","AAAABg=="]"#) && l.ends_with(r#",6]]}"#)), "{}", u[0]);
+}
+
+#[test]
+fn dolby_vision_rejections() {
+    let (code, _) = run(&["--dovi-config", "0100"], &media("hevc_open_gop.hevc"));
+    assert_eq!(code, cli::EXIT_USAGE, "a malformed record is a usage error");
+    let dual = "010010371000000000000000000000000000000000000000";
+    let (code, _) = run(&["--dovi-config", dual], &media("hevc_open_gop.hevc"));
+    assert_eq!(code, cli::EXIT_USAGE, "an enhancement layer record");
+
+    let (_, out) = run(&["--dovi-config", DOVI_8_1], &media("hevc_open_gop.hevc"));
+    assert!(error(&out).contains("--dovi-config was given but the stream carries no Dolby Vision RPU"), "{out}");
+
+    let (_, out) = run(&["--dovi-config", DOVI_8_1], &temp("el.hevc", &with_rpu(63)));
+    assert!(error(&out).contains("Dolby Vision enhancement layer NAL unit at byte"), "{out}");
 }
