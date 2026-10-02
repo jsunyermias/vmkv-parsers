@@ -1,0 +1,19 @@
+[package]
+name = "vmkv-parser-hevc"
+description = "VMKV parser for H.265/HEVC in Annex B (.hevc, .h265)"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+name = "vmkv_parser_hevc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vmkv-parser-hevc"
+path = "src/main.rs"
+
+[dependencies]
+vtj = { path = "../vtj" }
+
+[dev-dependencies]
+vtj-stress = { path = "../vtj-stress" }
