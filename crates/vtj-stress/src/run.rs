@@ -23,6 +23,9 @@ pub struct RunConfig {
     pub bin: PathBuf,
     /// Arguments passed before the input, such as `--frame-rate 25`.
     pub extra_args: Vec<String>,
+    /// Arguments passed after the input, such as a second source the
+    /// mutated input must come before.
+    pub trailing_args: Vec<String>,
     pub timeout: Duration,
     /// Run each variant twice and require identical output (rule 8).
     pub repeat: bool,
@@ -120,6 +123,7 @@ fn execute(cfg: &RunConfig, input: &Path, dir: &Path) -> Result<Raw, String> {
     let mut child = Command::new(&cfg.bin)
         .args(&cfg.extra_args)
         .arg(input)
+        .args(&cfg.trailing_args)
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err))

@@ -33,7 +33,7 @@ fn script(name: &str, body: &str) -> RunConfig {
     let p = dir("bin").join(name);
     std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-    RunConfig { bin: p, extra_args: vec![], timeout: Duration::from_secs(20), repeat: false }
+    RunConfig { bin: p, extra_args: vec![], trailing_args: vec![], timeout: Duration::from_secs(20), repeat: false }
 }
 
 fn verdict(cfg: &RunConfig) -> Verdict {

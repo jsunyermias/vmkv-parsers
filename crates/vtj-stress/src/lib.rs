@@ -49,7 +49,27 @@ pub fn ci_suite() -> Vec<Selection> {
 /// Runs `selections` on each input with the parser binary `bin` and returns
 /// every problem as `input variant: problem` lines, plus the number of runs.
 pub fn check(bin: &Path, inputs: &[&Path], selections: &[Selection], jobs: usize) -> (Vec<String>, usize) {
-    let cfg = RunConfig { bin: bin.to_path_buf(), extra_args: vec![], timeout: Duration::from_secs(10), repeat: false };
+    check_with_args(bin, &[], &[], inputs, selections, jobs)
+}
+
+/// `check` with arguments around each mutated input: `before` comes first,
+/// `after` last (another source the input must precede, for example).
+pub fn check_with_args(
+    bin: &Path,
+    before: &[&str],
+    after: &[&str],
+    inputs: &[&Path],
+    selections: &[Selection],
+    jobs: usize,
+) -> (Vec<String>, usize) {
+    let strings = |a: &[&str]| a.iter().map(|s| s.to_string()).collect();
+    let cfg = RunConfig {
+        bin: bin.to_path_buf(),
+        extra_args: strings(before),
+        trailing_args: strings(after),
+        timeout: Duration::from_secs(10),
+        repeat: false,
+    };
     let scratch = std::env::temp_dir().join(format!("vtj-stress-check-{}", std::process::id()));
     let (mut problems, mut runs) = (Vec::new(), 0);
     for input in inputs {

@@ -22,6 +22,9 @@ Parser:
                            (.mp3 mp3, .aac/.adts aac, .opus/.ogg opus)
   --bin <PATH>             run this parser binary instead
   --parser-arg <ARG>       pass ARG to the parser before the input (repeatable)
+  --parser-trailing-arg <ARG>
+                           pass ARG to the parser after the input, e.g. a
+                           second source (repeatable)
 
 Which variants (for every INPUT):
   --kinds <LIST>           comma list of: truncate, flip, set, zero, delete,
@@ -63,6 +66,7 @@ struct Args {
     parser: Option<String>,
     bin: Option<PathBuf>,
     parser_args: Vec<String>,
+    parser_trailing_args: Vec<String>,
     sel: Selection,
     variants: Vec<Mutation>,
     jobs: usize,
@@ -81,6 +85,7 @@ fn parse_args(argv: &[String]) -> Result<Option<Args>, String> {
         parser: None,
         bin: None,
         parser_args: Vec::new(),
+        parser_trailing_args: Vec::new(),
         sel: Selection::default(),
         variants: Vec::new(),
         jobs: std::thread::available_parallelism().map_or(1, |n| n.get()),
@@ -107,6 +112,9 @@ fn parse_args(argv: &[String]) -> Result<Option<Args>, String> {
             "--parser" => a.parser = Some(value().ok_or("--parser requires a codec")?),
             "--bin" => a.bin = Some(PathBuf::from(value().ok_or("--bin requires a path")?)),
             "--parser-arg" => a.parser_args.push(value().ok_or("--parser-arg requires a value")?),
+            "--parser-trailing-arg" => {
+                a.parser_trailing_args.push(value().ok_or("--parser-trailing-arg requires a value")?)
+            }
             "--kinds" => {
                 a.sel.kinds =
                     value().ok_or("--kinds requires a list")?.split(',').map(|k| k.trim().to_string()).collect()
@@ -241,6 +249,7 @@ fn main() -> ExitCode {
         let cfg = RunConfig {
             bin: bin.clone(),
             extra_args: args.parser_args.clone(),
+            trailing_args: args.parser_trailing_args.clone(),
             timeout: args.timeout,
             repeat: args.repeat,
         };

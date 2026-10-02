@@ -30,6 +30,7 @@ sus bytes en el archivo original, sin copiar los datos.
 | `crates/parser-webvtt` | `vmkv-parser-webvtt`: WebVTT con el mapping de Matroska: bloques globales en `codec_private`, timestamps internos reescritos y ajustes, identificador y NOTE en la block addition 1 |
 | `crates/parser-ass` | `vmkv-parser-ass`: SSA y ASS con el mapping de Matroska: líneas no-diálogo en `codec_private`, cada diálogo como `ReadOrder,Layer,Style,…,Text` |
 | `crates/parser-pgs` | `vmkv-parser-pgs`: subtítulos PGS de Blu-ray desde `.sup`, un display set por unidad, como en los MKV reales |
+| `crates/parser-vobsub` | `vmkv-parser-vobsub`: subtítulos VobSub desde `.idx` + `.sub` (dos fuentes), un SPU por unidad, idioma elegido con `--stream-index` |
 | `crates/parser-h264` | `vmkv-parser-h264`: H.264 en Annex B, con su propio ensamblador de Access Units, `codec_private` AVCC y reordenado de frames B por picture order count (POC) |
 
 ## Binarios
@@ -179,6 +180,7 @@ Las variaciones se eligen con precisión:
 - **Posiciones**: `--step`, `--positions` o `--random-positions` con `--seed`.
 - **Parámetros de cada edición**: `--len`, `--masks`/`--bit-flips`, `--value` y `--random-count`/`--random-edits`.
 - **Variantes exactas**: `--variant`, repetible.
+- **Parsers con varias fuentes**: `--parser-arg` antes y `--parser-trailing-arg` después de la entrada mutada (por ejemplo, el `.idx` delante del `.sub`).
 - **Límite**: `--max-variants`.
 
 `vtj-stress --help` lista todas las opciones, incluidas `--jobs`, `--timeout-ms`, `--fail-fast`, `--keep`, `--list` y `--json`.

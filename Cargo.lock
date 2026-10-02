@@ -193,6 +193,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vmkv-parser-vobsub"
+version = "0.1.0"
+dependencies = [
+ "vtj",
+ "vtj-stress",
+]
+
+[[package]]
 name = "vmkv-parser-vorbis"
 version = "0.1.0"
 dependencies = [
