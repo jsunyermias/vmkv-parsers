@@ -49,6 +49,7 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 
 1. [x] H.264 Annex B (`vmkv-parser-h264`): scanner Annex B, NAL units, ensamblador de Access Units (decisión 54), estado de parameter sets, POC/timing, unit. Un frame Matroska es un Access Unit y puede llevar varios NAL. Un frame no es un NAL.
 2. [x] Frames B: las líneas salen en orden de archivo, pero `pts` y `duration` dependen del orden de presentación (POC, decisión 55). Se acumulan las units en memoria y se escribe en una segunda pasada. Probado con `testdata/media/h264_sample.h264` (real, generado con `ffmpeg`/libx264 esta sesión: I + 7 P + 12 B, `pic_order_cnt_type` 0) — el orden de presentación resultante coincide exactamente con el de `ffprobe`, y `codec_private` coincide byte a byte con el `avcC` que genera `ffmpeg -c:v copy -f mp4` del mismo archivo. `vtj-stress`: 1000+ variantes, 0 problems. Fuera de alcance por ahora (decisiones 56-57): `pic_order_cnt_type` 1, entrelazado, FMO, slices redundantes, croma 4:2:2/4:4:4, más de un SPS/PPS activo por pista. Esta abstracción (reordenar por POC en una segunda pasada) se comparte con HEVC.
+   Revisión posterior (decisión 71): orden por periodo entre IDR y POC, frame rate de la VUI solo con `fixed_frame_rate_flag`, `avcC` completo para perfiles High, SEI asociado a la imagen siguiente, rangos y aritmética comprobados. Verificado con 6 pistas H.264 reales (orden de presentación idéntico al del decodificador de FFmpeg) y un fixture High de 3 GOP.
 3. HEVC: pendiente.
 
 ## Fase 4. Casos difíciles

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 #[test]
 fn damaged_inputs_never_break_the_contract() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/media");
-    let inputs: Vec<PathBuf> = ["h264_sample.h264"].iter().map(|f| root.join(f)).collect();
+    let inputs: Vec<PathBuf> = ["h264_sample.h264", "h264_high_2gop.h264"].iter().map(|f| root.join(f)).collect();
     let refs: Vec<&Path> = inputs.iter().map(PathBuf::as_path).collect();
     let jobs = std::thread::available_parallelism().map_or(2, |n| n.get());
     let bin = Path::new(env!("CARGO_BIN_EXE_vmkv-parser-h264"));

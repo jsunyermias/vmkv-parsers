@@ -40,22 +40,34 @@ fn parse_slice_key(
 ) -> Result<(SliceKey, Sps), String> {
     let mut r = BitReader::new(rbsp);
     let _first_mb_in_slice = r.ue()?;
-    let _slice_type = r.ue()?;
-    let pic_parameter_set_id = r.ue()? as u32;
+    let slice_type = r.ue()?;
+    if slice_type > 9 {
+        return Err(format!("slice_type {slice_type} is out of range"));
+    }
+    let (is_p, is_b, is_sp) = (slice_type % 5 == 0, slice_type % 5 == 1, slice_type % 5 == 3);
+    let pic_parameter_set_id = r.ue()?;
+    if pic_parameter_set_id > 255 {
+        return Err(format!("pic_parameter_set_id {pic_parameter_set_id} is out of range (at most 255)"));
+    }
+    let pic_parameter_set_id = pic_parameter_set_id as u32;
     let (sps, pps) =
         lookup(pic_parameter_set_id).ok_or_else(|| format!("slice refers to unknown PPS {pic_parameter_set_id}"))?;
     let frame_num = r.u(sps.log2_max_frame_num)? as u32;
     // frame_mbs_only_flag is required true by `parse_sps` (interlaced is
     // rejected), so field_pic_flag/bottom_field_flag are never present.
-    let idr_pic_id = if is_idr { r.ue()? as u32 } else { 0 };
-    let poc_lsb = match sps.poc_type {
-        PicOrderCntType::Type0 { log2_max_pic_order_cnt_lsb } => {
-            let lsb = r.u(log2_max_pic_order_cnt_lsb)? as u32;
-            if pps.bottom_field_pic_order_in_frame_present_flag {
-                let _delta_pic_order_cnt_bottom = r.se()?;
-            }
-            lsb
+    let idr_pic_id = if is_idr {
+        let v = r.ue()?;
+        if v > 65535 {
+            return Err(format!("idr_pic_id {v} is out of range (at most 65535)"));
         }
+        v as u32
+    } else {
+        0
+    };
+    // bottom_field_pic_order_in_frame_present_flag is rejected by
+    // `parse_pps`, so delta_pic_order_cnt_bottom is never present.
+    let poc_lsb = match sps.poc_type {
+        PicOrderCntType::Type0 { log2_max_pic_order_cnt_lsb } => r.u(log2_max_pic_order_cnt_lsb)? as u32,
         PicOrderCntType::Type2 => 0,
     };
     if pps.redundant_pic_cnt_present_flag {
@@ -64,8 +76,118 @@ fn parse_slice_key(
             return Err("redundant coded slices are not supported".into());
         }
     }
+    if nal_ref_idc != 0 {
+        skip_to_ref_pic_marking(&mut r, &sps, &pps, is_p, is_b, is_sp)?;
+        check_ref_pic_marking(&mut r, is_idr)?;
+    }
     let key = SliceKey { pic_parameter_set_id, frame_num, is_idr, idr_pic_id, poc_lsb, is_reference: nal_ref_idc != 0 };
     Ok((key, sps))
+}
+
+/// Reads past the slice header fields between the POC fields and
+/// `dec_ref_pic_marking` (§7.3.3): `direct_spatial_mv_pred_flag`, the
+/// active reference counts, `ref_pic_list_modification` and
+/// `pred_weight_table`. Nothing in them is kept; they only have to be read
+/// to reach the memory management operations.
+fn skip_to_ref_pic_marking(
+    r: &mut BitReader,
+    sps: &Sps,
+    pps: &Pps,
+    is_p: bool,
+    is_b: bool,
+    is_sp: bool,
+) -> Result<(), String> {
+    if is_b {
+        r.u1()?; // direct_spatial_mv_pred_flag
+    }
+    let (mut l0, mut l1) = (pps.num_ref_idx_l0_default_active_minus1, pps.num_ref_idx_l1_default_active_minus1);
+    // num_ref_idx_active_override_flag
+    if (is_p || is_sp || is_b) && r.u1()? {
+        l0 = ue_max(r, 31, "num_ref_idx_l0_active_minus1")?;
+        if is_b {
+            l1 = ue_max(r, 31, "num_ref_idx_l1_active_minus1")?;
+        }
+    }
+    let lists = if is_b {
+        2
+    } else if is_p || is_sp {
+        1
+    } else {
+        0
+    };
+    for _ in 0..lists {
+        if r.u1()? {
+            // ref_pic_list_modification_flag_lX
+            loop {
+                match r.ue()? {
+                    0..=2 => {
+                        r.ue()?; // abs_diff_pic_num_minus1 or long_term_pic_num
+                    }
+                    3 => break,
+                    idc => return Err(format!("modification_of_pic_nums_idc {idc} is out of range")),
+                }
+            }
+        }
+    }
+    if (pps.weighted_pred_flag && (is_p || is_sp)) || (pps.weighted_bipred_idc == 1 && is_b) {
+        r.ue()?; // luma_log2_weight_denom
+        let chroma = sps.chroma_format_idc != 0;
+        if chroma {
+            r.ue()?; // chroma_log2_weight_denom
+        }
+        let counts: &[u32] = if is_b { &[l0, l1] } else { &[l0] };
+        for &count in counts {
+            for _ in 0..=count {
+                if r.u1()? {
+                    r.se()?; // luma_weight
+                    r.se()?; // luma_offset
+                }
+                if chroma && r.u1()? {
+                    for _ in 0..4 {
+                        r.se()?; // chroma weight and offset, Cb and Cr
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Reads `dec_ref_pic_marking` (§7.3.3.3) and rejects memory management
+/// operation 5, which resets POC and frame_num as an IDR would without
+/// being one: not modelled (decision 71).
+fn check_ref_pic_marking(r: &mut BitReader, is_idr: bool) -> Result<(), String> {
+    if is_idr {
+        r.u1()?; // no_output_of_prior_pics_flag
+        r.u1()?; // long_term_reference_flag
+        return Ok(());
+    }
+    if !r.u1()? {
+        // adaptive_ref_pic_marking_mode_flag
+        return Ok(());
+    }
+    loop {
+        match r.ue()? {
+            0 => return Ok(()),
+            1 | 2 | 4 | 6 => {
+                r.ue()?;
+            }
+            3 => {
+                r.ue()?; // difference_of_pic_nums_minus1
+                r.ue()?; // long_term_frame_idx
+            }
+            5 => return Err("memory management operation 5 is not supported".into()),
+            op => return Err(format!("memory_management_control_operation {op} is out of range")),
+        }
+    }
+}
+
+fn ue_max(r: &mut BitReader, max: u64, what: &str) -> Result<u32, String> {
+    let v = r.ue()?;
+    if v > max {
+        return Err(format!("{what} {v} is out of range (at most {max})"));
+    }
+    Ok(v as u32)
 }
 
 /// Running state for picture order count (§8.2.1): type 0 tracks the
@@ -175,10 +297,14 @@ impl AuBuilder {
     }
 
     /// Feeds a non-parameter-set, non-slice NAL that still carries content
-    /// (SEI; filler and other markers are dropped by the caller instead):
-    /// it attaches to whichever access unit follows.
-    pub fn feed_other(&mut self, nal: (u64, u64)) {
+    /// (SEI; filler and other markers are dropped by the caller instead).
+    /// It precedes the next picture (§7.4.1.2.3): one met after a picture's
+    /// slices ends that picture's access unit, which is returned, and starts
+    /// the prefix of the next one.
+    pub fn feed_other(&mut self, nal: (u64, u64)) -> Option<AccessUnit> {
+        let completed = self.flush();
         self.pending.push(nal);
+        completed
     }
 
     /// Ends the access unit in progress, if any (encountering a parameter
@@ -235,7 +361,11 @@ mod tests {
                     }
                 }
                 NAL_FILLER => {}
-                _ => builder.feed_other((nal.offset, nal.length)),
+                _ => {
+                    if let Some(completed) = builder.feed_other((nal.offset, nal.length)) {
+                        aus.push(completed);
+                    }
+                }
             }
         }
         if let Some(completed) = builder.flush() {
@@ -294,11 +424,12 @@ mod tests {
         out
     }
 
-    /// A minimal non-IDR, type-2-POC slice header: first_mb_in_slice ue(0),
-    /// slice_type ue(0), pic_parameter_set_id ue(0), then `frame_num` in
-    /// `bits` fixed-width bits.
+    /// A minimal non-IDR, type-2-POC P slice header: first_mb_in_slice
+    /// ue(0), slice_type ue(0), pic_parameter_set_id ue(0), `frame_num` in
+    /// `bits` fixed-width bits, then no reference count override, no list
+    /// modification and no adaptive reference marking.
     fn minimal_slice_bits(frame_num: u32, bits: u32) -> Vec<u8> {
-        let s = format!("111{:0width$b}", frame_num, width = bits as usize);
+        let s = format!("111{:0width$b}000", frame_num, width = bits as usize);
         bits_to_bytes(&s)
     }
 
@@ -307,12 +438,16 @@ mod tests {
             seq_parameter_set_id: 0,
             profile_idc: 66,
             level_idc: 10,
+            chroma_format_idc: 1,
+            bit_depth_luma_minus8: 0,
+            bit_depth_chroma_minus8: 0,
             log2_max_frame_num: 4,
             poc_type: PicOrderCntType::Type2,
             max_num_ref_frames: 1,
             pic_width: 16,
             pic_height: 16,
             vui_timing: None,
+            fixed_frame_rate: false,
         }
     }
 
@@ -320,7 +455,10 @@ mod tests {
         Pps {
             pic_parameter_set_id: 0,
             seq_parameter_set_id: 0,
-            bottom_field_pic_order_in_frame_present_flag: false,
+            num_ref_idx_l0_default_active_minus1: 0,
+            num_ref_idx_l1_default_active_minus1: 0,
+            weighted_pred_flag: false,
+            weighted_bipred_idc: 0,
             redundant_pic_cnt_present_flag: false,
         }
     }

@@ -42,7 +42,9 @@ fn units(out: &str) -> Vec<&str> {
 #[test]
 fn golden_output() {
     let path = root().join("testdata/media/h264_sample.h264");
-    let (code, out, err) = run(&[], &path);
+    // libx264 through FFmpeg leaves fixed_frame_rate_flag at 0: the VUI
+    // clock does not fix the frame rate (decision 71).
+    let (code, out, err) = run(&["--frame-rate", "25"], &path);
     assert_eq!(code, 0, "{err}");
     assert_eq!(outcome(&out), Outcome::Success);
     let golden = root().join("testdata/golden/h264/h264_sample.vtj");
@@ -50,7 +52,10 @@ fn golden_output() {
         std::fs::write(&golden, &out).unwrap();
     }
     assert_eq!(out, std::fs::read_to_string(&golden).unwrap());
-    assert_eq!(run(&[], &path).1, out, "rule 8: same source, same output byte for byte");
+    assert_eq!(run(&["--frame-rate", "25"], &path).1, out, "rule 8: same source, same output byte for byte");
+    let (code, no_rate, _) = run(&[], &path);
+    assert_eq!(code, cli::EXIT_PARSE_ERROR);
+    assert!(no_rate.ends_with("\"code\":\"TIMING_REQUIRED\",\"message\":\"the VUI timing does not fix the frame rate (fixed_frame_rate_flag = 0); pass --frame-rate\"}\n"), "{no_rate}");
     assert_eq!(units(&out).len(), 20, "ffprobe's own frame count for this fixture");
 }
 
@@ -63,7 +68,7 @@ fn golden_output() {
 #[test]
 fn codec_private_matches_ffmpegs_own_avcc_box() {
     let path = root().join("testdata/media/h264_sample.h264");
-    let (code, out, err) = run(&[], &path);
+    let (code, out, err) = run(&["--frame-rate", "25"], &path);
     assert_eq!(code, 0, "{err}");
     let track = out.lines().find(|l| l.contains(r#""type":"track""#)).unwrap();
     let src = std::fs::read(&path).unwrap();
@@ -164,11 +169,12 @@ fn minimal_stream_without_vui() -> Vec<u8> {
     let pps = bits_to_bytes(pps_bits);
 
     let slice_bits = concat!(
-        "1",    // first_mb_in_slice ue(0)
-        "1",    // slice_type ue(0)
-        "1",    // pic_parameter_set_id ue(0)
-        "0000", // frame_num (4 bits, log2_max_frame_num = 4)
-        "1",    // idr_pic_id ue(0) (this is an IDR slice)
+        "1",       // first_mb_in_slice ue(0)
+        "0001000", // slice_type ue(7): I
+        "1",       // pic_parameter_set_id ue(0)
+        "0000",    // frame_num (4 bits, log2_max_frame_num = 4)
+        "1",       // idr_pic_id ue(0) (this is an IDR slice)
+        "00",      // no_output_of_prior_pics_flag, long_term_reference_flag
     );
     let slice = bits_to_bytes(slice_bits);
 
@@ -229,4 +235,184 @@ fn unknown_nal_unit_type_is_rejected() {
     assert_eq!(code, cli::EXIT_PARSE_ERROR);
     assert_eq!(outcome(&out), Outcome::Failure);
     assert!(out.contains(r#""code":"UNSUPPORTED_FEATURE","message":"NAL unit type 20"#), "{out}");
+}
+
+fn error_line(out: &str) -> &str {
+    out.lines().last().unwrap()
+}
+
+/// An Annex B stream from `(NAL header byte, RBSP bits)` pairs.
+fn annexb(nals: &[(u8, &str)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (header, bits) in nals {
+        out.extend([0, 0, 0, 1, *header]);
+        out.extend(bits_to_bytes(bits));
+    }
+    out
+}
+
+/// Baseline, type-2 POC, one 16x16 macroblock, no VUI; `crop` is the
+/// frame cropping part (flag, then its four offsets when set).
+fn sps_bits(crop: &str) -> String {
+    let mut s = String::from("01000010"); // profile_idc 66
+    s += "00000000"; // constraint flags
+    s += "00001010"; // level_idc 10
+    s += "1"; // seq_parameter_set_id ue(0)
+    s += "1"; // log2_max_frame_num_minus4 ue(0)
+    s += "011"; // pic_order_cnt_type ue(2)
+    s += "1"; // max_num_ref_frames ue(0)
+    s += "0"; // gaps_in_frame_num_value_allowed_flag
+    s += "1"; // pic_width_in_mbs_minus1 ue(0)
+    s += "1"; // pic_height_in_map_units_minus1 ue(0)
+    s += "1"; // frame_mbs_only_flag
+    s += "1"; // direct_8x8_inference_flag
+    s += crop;
+    s += "0"; // vui_parameters_present_flag
+    s
+}
+
+/// pps id 0, sps id 0, CAVLC, no bottom field POC, one slice group, one
+/// default reference each way, no weighted prediction, QP offsets 0, no
+/// deblocking control, no constrained intra, no redundant_pic_cnt.
+const PPS_BITS: &str = "1100111000111000";
+/// The same with bottom_field_pic_order_in_frame_present_flag set.
+const PPS_BOTTOM_FIELD_BITS: &str = "1101111000111000";
+/// IDR I slice: first_mb 0, slice_type ue(7), pps 0, frame_num 0 (4 bits),
+/// idr_pic_id 0, no_output_of_prior_pics 0, long_term_reference 0.
+const IDR_BITS: &str = "1000100010000100";
+
+#[test]
+fn high_profile_fixture_with_three_gops() {
+    let path = root().join("testdata/media/h264_high_2gop.h264");
+    let (code, out, err) = run(&[], &path);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(outcome(&out), Outcome::Success);
+    let golden = root().join("testdata/golden/h264/h264_high_2gop.vtj");
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::write(&golden, &out).unwrap();
+    }
+    assert_eq!(out, std::fs::read_to_string(&golden).unwrap());
+    let u = units(&out);
+    assert_eq!(u.len(), 36);
+    // fixed_frame_rate_flag = 1: 24000/1001 from the VUI, no parameter.
+    assert!(!out.lines().next().unwrap().contains("params"));
+    // Each IDR starts a new POC period: the second IDR (decode index 12)
+    // is presented at frame 12, after everything before it.
+    assert!(u[12].starts_with(r#"{"type":"unit","pts_ns":500500000,"#), "{}", u[12]);
+    // High profile: the avcC record ends with chroma format 1 and 8-bit
+    // depths (fc f8 f8) and no SPS extension, as FFmpeg's own avcC.
+    assert!(out.contains(r#"["inline","/fj4AA=="]]"#), "{out}");
+}
+
+#[test]
+fn a_second_gop_is_presented_after_the_first() {
+    // Codex's reproduction: the fixture twice in a row.
+    let one = std::fs::read(root().join("testdata/media/h264_sample.h264")).unwrap();
+    let (_, single, _) = run(&["--frame-rate", "25"], &temp("one.h264", &one));
+    let twice = [one.clone(), one].concat();
+    let (code, out, err) = run(&["--frame-rate", "25"], &temp("twice.h264", &twice));
+    assert_eq!(code, 0, "{err}");
+    let u = units(&out);
+    assert_eq!(u.len(), 40);
+    assert!(
+        u[20].starts_with(r#"{"type":"unit","pts_ns":800000000,"duration_ns":40000000,"flags":["random_access"]"#),
+        "{}",
+        u[20]
+    );
+    // The first GOP keeps exactly the times it has on its own.
+    let pts = |l: &str| l.split(',').nth(1).unwrap().to_string();
+    let first: Vec<_> = u[..20].iter().map(|l| pts(l)).collect();
+    let alone: Vec<_> = units(&single).iter().map(|l| pts(l)).collect();
+    assert_eq!(first, alone);
+}
+
+#[test]
+fn impossible_cropping_fails_cleanly_in_the_binary() {
+    // 16x16 picture cropped by 18 horizontal pixels (crop_right = 9 units
+    // of 2): the binary must write an error line, not panic.
+    // Crop flag, then left ue(0), right ue(9), top ue(0), bottom ue(0).
+    let crop = sps_bits("11000101011");
+    let stream = annexb(&[(0x67, &crop), (0x68, PPS_BITS), (0x65, IDR_BITS)]);
+    let f = temp("crop.h264", &stream);
+    let bin = env!("CARGO_BIN_EXE_vmkv-parser-h264");
+    let o = std::process::Command::new(bin).args(["--frame-rate", "25"]).arg(&f).output().unwrap();
+    let out = String::from_utf8(o.stdout).unwrap();
+    assert_eq!(o.status.code(), Some(cli::EXIT_PARSE_ERROR), "{out}");
+    assert_eq!(outcome(&out), Outcome::Failure);
+    assert!(
+        error_line(&out).contains("frame cropping of 18x0 pixels leaves nothing of the 16x16 coded picture"),
+        "{out}"
+    );
+}
+
+#[test]
+fn an_sei_between_pictures_belongs_to_the_next_one() {
+    let b = std::fs::read(root().join("testdata/media/h264_sample.h264")).unwrap();
+    let (_, plain, _) = run(&["--frame-rate", "25"], &temp("plain.h264", &b));
+    let second = units(&plain)[1];
+    let src_at = second.find(r#"["src",0,"#).unwrap() + 9;
+    let slice_at: usize = second[src_at..].split(',').next().unwrap().parse().unwrap();
+    // Insert a copy of the fixture's SEI (offset 38, before the IDR) right
+    // before the second picture's slice.
+    let sei_end = b[38..].windows(3).position(|w| w == [0, 0, 1]).unwrap() + 38;
+    let sei = b[38..sei_end].to_vec();
+    let mut m = b[..slice_at - 4].to_vec();
+    m.extend([0, 0, 0, 1]);
+    m.extend(&sei);
+    m.extend(&b[slice_at - 4..]);
+    let (code, out, err) = run(&["--frame-rate", "25"], &temp("sei.h264", &m));
+    assert_eq!(code, 0, "{err}");
+    let u = units(&out);
+    assert_eq!(u.len(), 20);
+    let sei_at = slice_at as u64;
+    assert!(u[1].contains(&format!(r#"["src",0,{sei_at},"#)), "the SEI opens picture 1: {}", u[1]);
+    assert!(!u[0].contains(&format!(r#"["src",0,{sei_at},"#)), "and is not appended to picture 0: {}", u[0]);
+}
+
+#[test]
+fn unmodelled_poc_features_are_rejected() {
+    let idr = IDR_BITS;
+    let (_, out, _) = run(
+        &["--frame-rate", "25"],
+        &temp("bottom.h264", &annexb(&[(0x67, &sps_bits("0")), (0x68, PPS_BOTTOM_FIELD_BITS), (0x65, idr)])),
+    );
+    assert!(
+        error_line(&out).contains(r#""code":"UNSUPPORTED_FEATURE","message":"bottom_field_pic_order_in_frame_present_flag = 1 is not supported""#),
+        "{out}"
+    );
+
+    // A P slice that is a reference picture with memory management
+    // operation 5: first_mb 0, P, PPS 0, frame_num 1, no override, no list
+    // modification, adaptive marking, MMCO 5.
+    let mmco5 = "111000100100110";
+    let (_, out, _) = run(
+        &["--frame-rate", "25"],
+        &temp("mmco5.h264", &annexb(&[(0x67, &sps_bits("0")), (0x68, PPS_BITS), (0x65, idr), (0x41, mmco5)])),
+    );
+    assert!(
+        error_line(&out)
+            .contains(r#""code":"UNSUPPORTED_FEATURE","message":"memory management operation 5 is not supported""#),
+        "{out}"
+    );
+}
+
+#[test]
+fn malformed_nal_headers_and_prefixes() {
+    let idr = IDR_BITS;
+    let ok = annexb(&[(0x67, &sps_bits("0")), (0x68, PPS_BITS), (0x65, idr)]);
+    let (code, _, err) = run(&["--frame-rate", "25"], &temp("ok.h264", &ok));
+    assert_eq!(code, 0, "the synthetic stream itself is valid: {err}");
+
+    let mut junk = b"X".to_vec();
+    junk.extend(&ok);
+    let (_, out, _) = run(&["--frame-rate", "25"], &temp("junk.h264", &junk));
+    assert!(error_line(&out).contains(r#""message":"byte 0 before the first start code is not zero""#), "{out}");
+
+    let forbidden = annexb(&[(0x67, &sps_bits("0")), (0x68, PPS_BITS), (0xe5, idr)]);
+    let (_, out, _) = run(&["--frame-rate", "25"], &temp("forbidden.h264", &forbidden));
+    assert!(error_line(&out).contains("has forbidden_zero_bit set"), "{out}");
+
+    let unreferenced_idr = annexb(&[(0x67, &sps_bits("0")), (0x68, PPS_BITS), (0x05, idr)]);
+    let (_, out, _) = run(&["--frame-rate", "25"], &temp("idr0.h264", &unreferenced_idr));
+    assert!(error_line(&out).contains("NAL unit of type 5 at byte"), "{out}");
 }

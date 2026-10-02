@@ -60,6 +60,11 @@ fn scan_with_chunk_size(src: &mut SourceFile, chunk: usize) -> Result<Vec<Nal>, 
     if starts.is_empty() {
         return Err(ParseError::invalid("no Annex B start code found"));
     }
+    // Before the first start code only leading_zero_8bits may appear: any
+    // other byte would be silently dropped data.
+    if let Some(at) = first_nonzero(src, 0, starts[0] - 3)? {
+        return Err(ParseError::invalid(format!("byte {at} before the first start code is not zero")));
+    }
 
     let mut nals = Vec::with_capacity(starts.len());
     for (idx, &s) in starts.iter().enumerate() {
@@ -67,15 +72,7 @@ fn scan_with_chunk_size(src: &mut SourceFile, chunk: usize) -> Result<Vec<Nal>, 
         // (or the file ends here); trim the zero-byte stuffing right
         // before it, which belongs to neither NAL.
         let bound = if idx + 1 < starts.len() { starts[idx + 1] - 3 } else { size };
-        let mut e = bound;
-        while e > s {
-            let mut b = [0u8];
-            src.read_at(e - 1, &mut b)?;
-            if b[0] != 0 {
-                break;
-            }
-            e -= 1;
-        }
+        let e = last_nonzero_end(src, s, bound)?;
         if e <= s {
             return Err(ParseError::invalid(format!("empty NAL unit at byte {s}")));
         }
@@ -83,6 +80,39 @@ fn scan_with_chunk_size(src: &mut SourceFile, chunk: usize) -> Result<Vec<Nal>, 
     }
     Ok(nals)
 }
+
+/// Offset of the first non-zero byte in `[from, to)`, read in blocks.
+fn first_nonzero(src: &mut SourceFile, from: u64, to: u64) -> Result<Option<u64>, ParseError> {
+    let mut buf = vec![0u8; TRIM_BLOCK];
+    let mut p = from;
+    while p < to {
+        let n = (to - p).min(TRIM_BLOCK as u64) as usize;
+        src.read_at(p, &mut buf[..n])?;
+        if let Some(i) = buf[..n].iter().position(|&b| b != 0) {
+            return Ok(Some(p + i as u64));
+        }
+        p += n as u64;
+    }
+    Ok(None)
+}
+
+/// End of `[from, to)` once its trailing zero bytes are trimmed, read
+/// backwards in blocks rather than one byte per read.
+fn last_nonzero_end(src: &mut SourceFile, from: u64, to: u64) -> Result<u64, ParseError> {
+    let mut buf = vec![0u8; TRIM_BLOCK];
+    let mut e = to;
+    while e > from {
+        let n = (e - from).min(TRIM_BLOCK as u64) as usize;
+        src.read_at(e - n as u64, &mut buf[..n])?;
+        if let Some(i) = buf[..n].iter().rposition(|&b| b != 0) {
+            return Ok(e - n as u64 + i as u64 + 1);
+        }
+        e -= n as u64;
+    }
+    Ok(from)
+}
+
+const TRIM_BLOCK: usize = 4096;
 
 #[cfg(test)]
 mod tests {
