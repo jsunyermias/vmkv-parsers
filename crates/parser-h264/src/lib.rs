@@ -28,6 +28,7 @@
 pub mod access_unit;
 pub mod annexb;
 pub mod bits;
+pub mod colour;
 pub mod params;
 
 use std::collections::BTreeMap;
@@ -53,6 +54,8 @@ fn map_err(message: String) -> ParseError {
 /// `dec_ref_pic_marking` take a few dozen bytes even with full reference
 /// list modification and weight tables, so a slice is never read whole.
 const SLICE_HEADER_BYTES: u64 = 4096;
+/// SEI NAL units up to this size are read for HDR metadata.
+const SEI_READ_BYTES: u64 = 1 << 20;
 
 /// Reads a NAL unit's on-disk bytes, header included, untouched (emulation
 /// prevention and all), up to `max` bytes: the whole unit for a parameter
@@ -153,6 +156,7 @@ impl Parser for H264 {
         let mut pps_map: BTreeMap<u32, (Pps, Vec<u8>, u64)> = BTreeMap::new();
         let (mut active_sps_id, mut active_pps_id): (Option<u32>, Option<u32>) = (None, None);
         let mut builder = AuBuilder::default();
+        let mut hdr = colour::Hdr::default();
         let mut aus: Vec<AccessUnit> = Vec::new();
 
         for &nal in &nals {
@@ -257,6 +261,19 @@ impl Parser for H264 {
                             format!("SEI at byte {} is too long for a 4-byte NAL length", nal.offset),
                         ));
                     }
+                    // Static HDR metadata: an SEI too large to read whole is
+                    // not one of those few-byte messages.
+                    if nal.length <= SEI_READ_BYTES {
+                        let rbsp = rbsp_of(&read_nal(ctx.source(0), nal, SEI_READ_BYTES)?);
+                        colour::read_sei(&rbsp, &mut hdr).map_err(|e| {
+                            let code = if e.contains("changes") {
+                                ErrorCode::InconsistentTrackParameters
+                            } else {
+                                ErrorCode::InvalidBitstream
+                            };
+                            ParseError::new(code, format!("SEI at byte {}: {e}", nal.offset))
+                        })?;
+                    }
                     if let Some(au) = builder.feed_other((nal.offset, nal.length)) {
                         aus.push(au);
                     }
@@ -336,7 +353,10 @@ impl Parser for H264 {
 
         let mut track = Track::new(TrackType::Video, "V_MPEG4/ISO/AVC");
         track.codec_private = Some(codec_private(sps, sps_bytes, *sps_offset, pps_bytes, *pps_offset)?);
-        track.video = Some(Video::new(sps.pic_width, sps.pic_height));
+        let mut video = Video::new(sps.pic_width, sps.pic_height);
+        video.colour =
+            Some(colour::colour(sps.chroma_format_idc, sps.bit_depth_luma_minus8, sps.signal, sps.chroma_loc, &hdr));
+        track.video = Some(video);
         Ok(track)
     }
 }

@@ -4,6 +4,7 @@
 //! range before use. Everything after the last needed field is never read.
 
 use crate::bits::BitReader;
+use crate::colour::Signal;
 
 /// `ue(v)` checked against an inclusive maximum.
 pub fn ue_max(r: &mut BitReader, max: u64, what: &str) -> Result<u32, String> {
@@ -160,6 +161,9 @@ pub struct Sps {
     pub height: u64,
     pub vui_timing: Option<VuiTiming>,
     pub min_spatial_segmentation_idc: u32,
+    pub signal: Option<Signal>,
+    /// `chroma_sample_loc_type_top_field`.
+    pub chroma_loc: Option<u32>,
 }
 
 fn hrd_parameters(r: &mut BitReader, max_sub_layers_minus1: u32) -> Result<Option<u32>, String> {
@@ -296,6 +300,8 @@ pub fn parse_sps(rbsp: &[u8]) -> Result<Sps, String> {
     r.u1()?; // strong_intra_smoothing_enabled_flag
     let mut vui_timing = None;
     let mut min_spatial_segmentation_idc = 0;
+    let mut signal = None;
+    let mut chroma_loc = None;
     if r.u1()? {
         // vui_parameters_present_flag
         if r.u1()? {
@@ -309,14 +315,15 @@ pub fn parse_sps(rbsp: &[u8]) -> Result<Sps, String> {
         }
         if r.u1()? {
             // video_signal_type_present_flag
-            skip(&mut r, 3 + 1)?;
-            if r.u1()? {
-                skip(&mut r, 24)?;
-            }
+            r.u(3)?; // video_format
+            let full_range = r.u1()?;
+            let description = if r.u1()? { Some((r.u(8)? as u8, r.u(8)? as u8, r.u(8)? as u8)) } else { None };
+            signal = Some(Signal { full_range, description });
         }
         if r.u1()? {
-            r.ue()?;
-            r.ue()?;
+            // chroma_loc_info_present_flag
+            chroma_loc = Some(ue_max(&mut r, 5, "chroma_sample_loc_type_top_field")?);
+            ue_max(&mut r, 5, "chroma_sample_loc_type_bottom_field")?;
         }
         r.u1()?; // neutral_chroma_indication_flag
         if r.u1()? {
@@ -366,6 +373,8 @@ pub fn parse_sps(rbsp: &[u8]) -> Result<Sps, String> {
         height: coded_height - crop_y,
         vui_timing,
         min_spatial_segmentation_idc,
+        signal,
+        chroma_loc,
     })
 }
 

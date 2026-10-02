@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "vmkv-parser-h264"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "vtj",
  "vtj-stress",
@@ -138,7 +138,7 @@ dependencies = [
 
 [[package]]
 name = "vmkv-parser-hevc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "vtj",
  "vtj-stress",

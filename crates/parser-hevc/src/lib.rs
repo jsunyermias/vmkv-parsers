@@ -24,6 +24,7 @@
 pub mod access_unit;
 pub mod annexb;
 pub mod bits;
+pub mod colour;
 pub mod params;
 
 use std::collections::BTreeMap;
@@ -36,6 +37,8 @@ use vtj::*;
 
 /// Bytes of a slice segment read to parse its header up to the POC.
 const SLICE_HEADER_BYTES: u64 = 1024;
+/// Prefix SEI NAL units up to this size are read for HDR metadata.
+const SEI_READ_BYTES: u64 = 1 << 20;
 
 fn map_err(message: String) -> ParseError {
     if message.contains("not supported") {
@@ -94,7 +97,9 @@ fn store<T>(
 }
 
 /// The HEVCDecoderConfigurationRecord (ISO/IEC 14496-15 §8.3.3.1).
-fn hvcc(vps: &Vps, sps: &Sps, pps: &Pps, arrays: [(u8, &[u8], u64); 3]) -> Result<DataChain, ParseError> {
+/// `arrays`: NAL type, bytes, offset and whether every NAL of that type is
+/// in the record (array_completeness).
+fn hvcc(vps: &Vps, sps: &Sps, pps: &Pps, arrays: [(u8, &[u8], u64, bool); 3]) -> Result<DataChain, ParseError> {
     let parallelism = if sps.min_spatial_segmentation_idc == 0 {
         0
     } else {
@@ -121,9 +126,9 @@ fn hvcc(vps: &Vps, sps: &Sps, pps: &Pps, arrays: [(u8, &[u8], u64); 3]) -> Resul
         3,
     ]);
     let mut chain = vec![];
-    for (kind, bytes, at) in arrays {
+    for (kind, bytes, at, complete) in arrays {
         let len = u16::try_from(bytes.len()).expect("checked when read");
-        head.push(0x80 | kind);
+        head.push(if complete { 0x80 } else { 0 } | kind);
         head.extend(1u16.to_be_bytes());
         head.extend(len.to_be_bytes());
         chain.push(Chunk::inline(std::mem::take(&mut head)));
@@ -155,6 +160,9 @@ impl Parser for Hevc {
         let mut sps_by_id: BTreeMap<u32, Sps> = BTreeMap::new();
         let mut pps_by_id: BTreeMap<u32, Pps> = BTreeMap::new();
         let mut builder = AuBuilder::new();
+        let mut hdr = colour::Hdr::default();
+        let mut active_pps: Option<Vec<u8>> = None;
+        let mut pps_in_band = false;
         let mut aus: Vec<AccessUnit> = Vec::new();
 
         for &nal in &nals {
@@ -218,8 +226,26 @@ impl Parser for Hevc {
                     let p =
                         params::parse_pps(&rbsp_of(&full)).map_err(|e| map_err(format!("PPS at byte {at}: {e}")))?;
                     pps_by_id.insert(p.pps_id, p);
-                    store(&mut pps_set, p.pps_id, p, full, at, "PPS")?;
-                    builder.feed_prefix(None)
+                    match &pps_set {
+                        // A PPS may change between pictures (decision 75):
+                        // a new content stays in-band, in front of the
+                        // pictures that use it; a repeat of the active one
+                        // is dropped.
+                        Some((id, _)) if *id == p.pps_id => {
+                            if active_pps.as_ref() != Some(&full) {
+                                pps_in_band = true;
+                                active_pps = Some(full);
+                                builder.feed_prefix(Some((nal.offset, nal.length)))
+                            } else {
+                                builder.feed_prefix(None)
+                            }
+                        }
+                        _ => {
+                            store(&mut pps_set, p.pps_id, p, full.clone(), at, "PPS")?;
+                            active_pps = Some(full);
+                            builder.feed_prefix(None)
+                        }
+                    }
                 }
                 access_unit::AUD => builder.feed_prefix(None),
                 access_unit::EOS | access_unit::EOB => builder.end_of_sequence(),
@@ -230,6 +256,19 @@ impl Parser for Hevc {
                             ErrorCode::UnrepresentableInVmkv,
                             format!("SEI at byte {at} is too long for a 4-byte NAL length"),
                         ));
+                    }
+                    // Static HDR metadata: an SEI too large to read whole is
+                    // not one of those few-byte messages.
+                    if nal.length <= SEI_READ_BYTES {
+                        let rbsp = rbsp_of(&read_nal(ctx.source(0), nal, SEI_READ_BYTES)?);
+                        colour::read_sei(&rbsp, &mut hdr).map_err(|e| {
+                            let code = if e.contains("changes") {
+                                ErrorCode::InconsistentTrackParameters
+                            } else {
+                                ErrorCode::InvalidBitstream
+                            };
+                            ParseError::new(code, format!("SEI at byte {at}: {e}"))
+                        })?;
                     }
                     builder.feed_prefix(Some((nal.offset, nal.length)))
                 }
@@ -314,12 +353,15 @@ impl Parser for Hevc {
             &sps,
             &pps,
             [
-                (access_unit::VPS, &vps_bytes, vps_at),
-                (access_unit::SPS, &sps_bytes, sps_at),
-                (access_unit::PPS, &pps_bytes, pps_at),
+                (access_unit::VPS, &vps_bytes, vps_at, true),
+                (access_unit::SPS, &sps_bytes, sps_at, true),
+                (access_unit::PPS, &pps_bytes, pps_at, !pps_in_band),
             ],
         )?);
-        track.video = Some(Video::new(sps.width, sps.height));
+        let mut video = Video::new(sps.width, sps.height);
+        video.colour =
+            Some(colour::colour(sps.chroma_format_idc, sps.bit_depth_luma_minus8, sps.signal, sps.chroma_loc, &hdr));
+        track.video = Some(video);
         Ok(track)
     }
 }

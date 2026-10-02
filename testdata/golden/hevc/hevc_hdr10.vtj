@@ -1,0 +1,15 @@
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-hevc","version":"0.2.0"},"sources":[{"id":0,"size":2028,"sha256":"9f6f9c9bc046c748987badfa51d8484f466a553f931106c422235d35642e64de"}],"params":{"frame_rate":[24000,1001]}}
+{"type":"unit","pts_ns":0,"duration_ns":41708333,"flags":["random_access"],"payload":[["inline","AAAACQ=="],["src",0,90,9],["inline","AAAAHg=="],["src",0,102,30],["inline","AAAFKw=="],["src",0,135,1323]]}
+{"type":"unit","pts_ns":41708333,"duration_ns":41708334,"flags":[],"payload":[["inline","AAAATQ=="],["src",0,1462,77]]}
+{"type":"unit","pts_ns":250250000,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAArw=="],["src",0,1543,175]]}
+{"type":"unit","pts_ns":166833333,"duration_ns":41708334,"flags":[],"payload":[["inline","AAAAGQ=="],["src",0,1722,25]]}
+{"type":"unit","pts_ns":83416667,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAAEA=="],["src",0,1751,16]]}
+{"type":"unit","pts_ns":125125000,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAAFw=="],["src",0,1771,23]]}
+{"type":"unit","pts_ns":208541667,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAAEQ=="],["src",0,1798,17]]}
+{"type":"unit","pts_ns":458791667,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAAew=="],["src",0,1819,123]]}
+{"type":"unit","pts_ns":375375000,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAAEg=="],["src",0,1946,18]]}
+{"type":"unit","pts_ns":291958333,"duration_ns":41708334,"flags":[],"payload":[["inline","AAAAEA=="],["src",0,1968,16]]}
+{"type":"unit","pts_ns":333666667,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAAEg=="],["src",0,1988,18]]}
+{"type":"unit","pts_ns":417083333,"duration_ns":41708334,"flags":[],"payload":[["inline","AAAAEg=="],["src",0,2010,18]]}
+{"type":"track","track_type":"video","codec_id":"V_MPEGH/ISO/HEVC","codec_private":[["inline","AQIgAAAAkAAAAAAAHvAA/P36+gAADwOgAAEAGA=="],["src",0,4,24],["inline","oQABACw="],["src",0,32,44],["inline","ogABAAc="],["src",0,80,7]],"video":{"pixel_width":192,"pixel_height":108,"colour":{"matrix_coefficients":9,"bits_per_channel":10,"chroma_subsampling_horz":1,"chroma_subsampling_vert":1,"chroma_siting_horz":1,"chroma_siting_vert":1,"range":1,"transfer_characteristics":16,"primaries":9,"max_cll":1000,"max_fall":400,"mastering":{"primary_r_chromaticity_x":0.708,"primary_r_chromaticity_y":0.292,"primary_g_chromaticity_x":0.17,"primary_g_chromaticity_y":0.797,"primary_b_chromaticity_x":0.131,"primary_b_chromaticity_y":0.046,"white_point_chromaticity_x":0.3127,"white_point_chromaticity_y":0.329,"luminance_max":1000,"luminance_min":0.005}}}}
+{"type":"end","unit_count":12}

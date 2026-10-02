@@ -1,4 +1,4 @@
-{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-hevc","version":"0.1.0"},"sources":[{"id":0,"size":7005,"sha256":"cc2409d3549adaaf15a0638a28952bc26d7f9a85a60955412fdad63a95d26fd5"}],"params":{"frame_rate":[24000,1001]}}
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-hevc","version":"0.2.0"},"sources":[{"id":0,"size":7005,"sha256":"cc2409d3549adaaf15a0638a28952bc26d7f9a85a60955412fdad63a95d26fd5"}],"params":{"frame_rate":[24000,1001]}}
 {"type":"unit","pts_ns":0,"duration_ns":41708333,"flags":["random_access"],"payload":[["inline","AAAFJA=="],["src",0,87,1316]]}
 {"type":"unit","pts_ns":41708333,"duration_ns":41708334,"flags":[],"payload":[["inline","AAAATw=="],["src",0,1407,79]]}
 {"type":"unit","pts_ns":83416667,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAATA=="],["src",0,1490,76]]}
@@ -35,5 +35,5 @@
 {"type":"unit","pts_ns":1459791667,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAAUw=="],["src",0,6881,83]]}
 {"type":"unit","pts_ns":1418083333,"duration_ns":41708334,"flags":[],"payload":[["inline","AAAAEA=="],["src",0,6968,16]]}
 {"type":"unit","pts_ns":1376375000,"duration_ns":41708333,"flags":[],"payload":[["inline","AAAAEQ=="],["src",0,6988,17]]}
-{"type":"track","track_type":"video","codec_id":"V_MPEGH/ISO/HEVC","codec_private":[["inline","AQIgAAAAkAAAAAAAHvAA/P36+gAADwOgAAEAGA=="],["src",0,4,24],["inline","oQABACk="],["src",0,32,41],["inline","ogABAAc="],["src",0,77,7]],"video":{"pixel_width":192,"pixel_height":108}}
+{"type":"track","track_type":"video","codec_id":"V_MPEGH/ISO/HEVC","codec_private":[["inline","AQIgAAAAkAAAAAAAHvAA/P36+gAADwOgAAEAGA=="],["src",0,4,24],["inline","oQABACk="],["src",0,32,41],["inline","ogABAAc="],["src",0,77,7]],"video":{"pixel_width":192,"pixel_height":108,"colour":{"bits_per_channel":10,"chroma_subsampling_horz":1,"chroma_subsampling_vert":1,"range":1}}}
 {"type":"end","unit_count":36}

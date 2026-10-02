@@ -448,6 +448,8 @@ mod tests {
             pic_height: 16,
             vui_timing: None,
             fixed_frame_rate: false,
+            signal: None,
+            chroma_loc: None,
         }
     }
 

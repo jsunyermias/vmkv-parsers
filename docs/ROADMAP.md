@@ -57,7 +57,8 @@ Lenguaje de implementación: Rust. Decisiones de interpretación del spec: [`spe
 ## Fase 4. Casos difíciles
 
 - Varias pistas por archivo (TrueHD con núcleo AC-3 entrelazado en un `.m2ts`: una ejecución por pista). TrueHD solo, en `.thd`, ya está (decisión 70).
-- `block_additions`, `colour`/HDR, `projection`.
+- [x] `colour` y HDR10 en H.264 y HEVC (decisión 75): VUI y SEI de mastering display y light level, verificado con `ffprobe` en dos pistas HEVC 4K reales.
+- `block_additions` (Dolby Vision) y `projection`.
 
 ## Fase 5. Verificación cruzada
 

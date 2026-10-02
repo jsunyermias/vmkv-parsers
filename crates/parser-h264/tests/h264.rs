@@ -416,3 +416,20 @@ fn malformed_nal_headers_and_prefixes() {
     let (_, out, _) = run(&["--frame-rate", "25"], &temp("idr0.h264", &unreferenced_idr));
     assert!(error_line(&out).contains("NAL unit of type 5 at byte"), "{out}");
 }
+
+#[test]
+fn hdr10_colour_metadata() {
+    // libx264 10-bit with BT.2020, PQ, chroma location 1, mastering display
+    // and content light level; values cross-checked with ffprobe.
+    let path = root().join("testdata/media/h264_hdr10.h264");
+    let (code, out, err) = run(&[], &path);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(outcome(&out), Outcome::Success);
+    let golden = root().join("testdata/golden/h264/h264_hdr10.vtj");
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::write(&golden, &out).unwrap();
+    }
+    assert_eq!(out, std::fs::read_to_string(&golden).unwrap());
+    assert!(out.contains(r#""chroma_siting_horz":2,"chroma_siting_vert":2,"range":1,"transfer_characteristics":16,"primaries":9,"max_cll":1500,"max_fall":300,"mastering":{"primary_r_chromaticity_x":0.68,"#), "{out}");
+    assert!(out.contains(r#""luminance_max":4000,"luminance_min":0.005}"#), "{out}");
+}

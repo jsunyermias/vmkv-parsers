@@ -3,6 +3,7 @@
 //! POC) are read; anything after them in the RBSP is never consulted.
 
 use crate::bits::BitReader;
+use crate::colour::Signal;
 
 /// Profiles whose SPS carries `chroma_format_idc`, bit depths and an
 /// optional scaling matrix (H.264 §7.3.2.1.1) — the "High" profile family.
@@ -40,6 +41,9 @@ pub struct Sps {
     /// VUI `fixed_frame_rate_flag`: only with it does `vui_timing` give
     /// every picture the same duration (decision 71).
     pub fixed_frame_rate: bool,
+    pub signal: Option<Signal>,
+    /// `chroma_sample_loc_type_top_field`.
+    pub chroma_loc: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,6 +166,8 @@ pub fn parse_sps(rbsp: &[u8]) -> Result<Sps, String> {
     let vui_parameters_present_flag = r.u1()?;
     let mut vui_timing = None;
     let mut fixed_frame_rate = false;
+    let mut signal = None;
+    let mut chroma_loc = None;
     if vui_parameters_present_flag {
         if r.u1()? {
             // aspect_ratio_info_present_flag
@@ -178,18 +184,15 @@ pub fn parse_sps(rbsp: &[u8]) -> Result<Sps, String> {
         if r.u1()? {
             // video_signal_type_present_flag
             let _video_format = r.u(3)?;
-            let _video_full_range_flag = r.u1()?;
-            if r.u1()? {
-                // colour_description_present_flag
-                let _colour_primaries = r.u(8)?;
-                let _transfer_characteristics = r.u(8)?;
-                let _matrix_coefficients = r.u(8)?;
-            }
+            let full_range = r.u1()?;
+            // colour_description_present_flag
+            let description = if r.u1()? { Some((r.u(8)? as u8, r.u(8)? as u8, r.u(8)? as u8)) } else { None };
+            signal = Some(Signal { full_range, description });
         }
         if r.u1()? {
             // chroma_loc_info_present_flag
-            let _chroma_sample_loc_type_top_field = r.ue()?;
-            let _chroma_sample_loc_type_bottom_field = r.ue()?;
+            chroma_loc = Some(ue_max(&mut r, 5, "chroma_sample_loc_type_top_field")?);
+            ue_max(&mut r, 5, "chroma_sample_loc_type_bottom_field")?;
         }
         if r.u1()? {
             // timing_info_present_flag
@@ -218,6 +221,8 @@ pub fn parse_sps(rbsp: &[u8]) -> Result<Sps, String> {
         pic_height,
         vui_timing,
         fixed_frame_rate,
+        signal,
+        chroma_loc,
     })
 }
 

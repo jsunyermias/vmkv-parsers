@@ -1,4 +1,4 @@
-{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-hevc","version":"0.1.0"},"sources":[{"id":0,"size":6482,"sha256":"ac16824a023a457d2d8898c90d953e656f629c5a9e22c3d9e3a6dd9eaaae5581"}]}
+{"type":"header","format":"vmkv-parser-output","version":1,"parser":{"name":"vmkv-parser-hevc","version":"0.2.0"},"sources":[{"id":0,"size":6482,"sha256":"ac16824a023a457d2d8898c90d953e656f629c5a9e22c3d9e3a6dd9eaaae5581"}]}
 {"type":"unit","pts_ns":0,"duration_ns":40000000,"flags":["random_access"],"payload":[["inline","AAAABg=="],["src",0,97,6],["inline","AAAADA=="],["src",0,106,12],["inline","AAAABw=="],["src",0,121,7],["inline","AAAE7g=="],["src",0,131,1262]]}
 {"type":"unit","pts_ns":160000000,"duration_ns":40000000,"flags":[],"payload":[["inline","AAAABw=="],["src",0,1397,7],["inline","AAAAiQ=="],["src",0,1407,137]]}
 {"type":"unit","pts_ns":80000000,"duration_ns":40000000,"flags":[],"payload":[["inline","AAAABw=="],["src",0,1548,7],["inline","AAAAEg=="],["src",0,1558,18]]}
@@ -35,5 +35,5 @@
 {"type":"unit","pts_ns":1320000000,"duration_ns":40000000,"flags":[],"payload":[["inline","AAAABw=="],["src",0,6392,7],["inline","AAAAEg=="],["src",0,6402,18]]}
 {"type":"unit","pts_ns":1280000000,"duration_ns":40000000,"flags":[],"payload":[["inline","AAAABw=="],["src",0,6424,7],["inline","AAAAEA=="],["src",0,6434,16]]}
 {"type":"unit","pts_ns":1360000000,"duration_ns":40000000,"flags":[],"payload":[["inline","AAAABw=="],["src",0,6454,7],["inline","AAAAEg=="],["src",0,6464,18]]}
-{"type":"track","track_type":"video","codec_id":"V_MPEGH/ISO/HEVC","codec_private":[["inline","AQFgAAAAkAAAAAAAPPAA/P34+AAADwOgAAEAGA=="],["src",0,4,24],["inline","oQABADM="],["src",0,32,51],["inline","ogABAAc="],["src",0,87,7]],"video":{"pixel_width":192,"pixel_height":108}}
+{"type":"track","track_type":"video","codec_id":"V_MPEGH/ISO/HEVC","codec_private":[["inline","AQFgAAAAkAAAAAAAPPAA/P34+AAADwOgAAEAGA=="],["src",0,4,24],["inline","oQABADM="],["src",0,32,51],["inline","ogABAAc="],["src",0,87,7]],"video":{"pixel_width":192,"pixel_height":108,"colour":{"bits_per_channel":8,"chroma_subsampling_horz":1,"chroma_subsampling_vert":1,"range":1}}}
 {"type":"end","unit_count":36}
